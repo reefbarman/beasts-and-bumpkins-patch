@@ -1,0 +1,16 @@
+plans/phase-2-resolution-and-reverse-engineering.md
+  h_e08a86bb3a33a2 1-121
+research/toolchain.md
+  h_e08a86bb3a33a2 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cff1d7a9d8f99583b27a8fbe1c8b17b6b28e4871",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
