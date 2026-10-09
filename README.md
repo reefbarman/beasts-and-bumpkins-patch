@@ -45,6 +45,7 @@ python3 scripts/bb.py install
 #    macOS: creates/uses the CrossOver bottle "BeastsAndBumpkins" (--bottle NAME to change)
 #    Windows: installs to C:\Games\Beasts (--target DIR to change, avoid Program Files)
 #    --no-music skips the CD music wrapper
+#    --resolution 1280x720 is experimental (bb-patch's edits: menus, briefings and videos glitch)
 #    --console enables developer mode on F11
 #    --console --console-key Z (or F12) uses another key; macOS takes F11 for Show Desktop
 

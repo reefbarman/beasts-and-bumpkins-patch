@@ -212,7 +212,13 @@ def registry_values(win_dir: str) -> dict:
     }
 
 
-def copy_game(dest: Path, music: bool) -> None:
+def window_size(resolution: tuple[int, int]) -> tuple[int, int]:
+    """Initial window: 2x for the native 640x480-class modes, 1x for larger."""
+    w, h = resolution
+    return (w * 2, h * 2) if w <= 800 else (w, h)
+
+
+def copy_game(dest: Path, music: bool, resolution: tuple[int, int]) -> None:
     if not BUILD_EXE.exists() or not (FILES / "BEASTS.EXE").exists():
         raise SystemExit("run prepare first")
     dest.mkdir(parents=True, exist_ok=True)
@@ -221,7 +227,7 @@ def copy_game(dest: Path, music: bool) -> None:
             shutil.copyfile(src, dest / src.name)
     shutil.copyfile(BUILD_EXE, dest / "BEASTS.EXE")
     shutil.copyfile(DOWNLOADS / "cnc-ddraw" / "ddraw.dll", dest / "ddraw.dll")
-    write_ddraw_ini(dest, fullscreen=False)
+    write_ddraw_ini(dest, fullscreen=False, window=window_size(resolution))
     if music:
         shutil.copyfile(DOWNLOADS / "ogg-winmm" / "winmm.dll", dest / "winmm.dll")
         shutil.copyfile(DOWNLOADS / "ogg-winmm" / "winmm.ini", dest / "winmm.ini")
@@ -233,9 +239,11 @@ def copy_game(dest: Path, music: bool) -> None:
             (dest / name).unlink(missing_ok=True)
 
 
-def write_ddraw_ini(dest: Path, fullscreen: bool) -> None:
+def write_ddraw_ini(dest: Path, fullscreen: bool, window: tuple[int, int]) -> None:
     text = (CONFIG / "cnc-ddraw" / "ddraw.ini").read_text()
     text = re.sub(r"(?m)^fullscreen=.*$", f"fullscreen={'true' if fullscreen else 'false'}", text)
+    text = re.sub(r"(?m)^width=.*$", f"width={window[0]}", text)
+    text = re.sub(r"(?m)^height=.*$", f"height={window[1]}", text)
     (dest / "ddraw.ini").write_text(text)
 
 
@@ -252,7 +260,7 @@ def reg_file_text(values: dict, overrides: dict) -> str:
     return "\r\n".join(lines) + "\r\n"
 
 
-def install_windows(args, music: bool) -> dict:
+def install_windows(args, music: bool, resolution: tuple[int, int]) -> dict:
     import winreg
 
     if args.bottle:
@@ -261,7 +269,7 @@ def install_windows(args, music: bool) -> dict:
     win_dir = os.path.abspath(args.target or DEFAULT_WIN_DIR)
     if "program files" in win_dir.lower():
         print("warning: installing under Program Files can break saves (UAC virtualisation)")
-    copy_game(Path(win_dir), music)
+    copy_game(Path(win_dir), music, resolution)
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_KEY) as key:
         for k, v in registry_values(win_dir).items():
             if isinstance(v, int):
@@ -275,7 +283,7 @@ def wine_cmd(bottle: str) -> list[str]:
     return [str(CROSSOVER_BIN / "wine"), "--bottle", bottle]
 
 
-def install_crossover(args, music: bool) -> dict:
+def install_crossover(args, music: bool, resolution: tuple[int, int]) -> dict:
     if not (CROSSOVER_BIN / "wine").exists():
         raise SystemExit("CrossOver not found in /Applications (install supports macOS CrossOver and Windows)")
     if args.target:
@@ -288,7 +296,7 @@ def install_crossover(args, music: bool) -> dict:
                         "--description", "Beasts and Bumpkins"], check=True)
     win_dir = DEFAULT_WIN_DIR
     game_dir = prefix / "drive_c" / "Games" / "Beasts"
-    copy_game(game_dir, music)
+    copy_game(game_dir, music, resolution)
     overrides = {"ddraw": "native,builtin", "winmm": "native,builtin" if music else None}
     with tempfile.NamedTemporaryFile("w", suffix=".reg", delete=False, newline="") as f:
         f.write(reg_file_text(registry_values(win_dir), overrides))
@@ -311,13 +319,24 @@ def cmd_install(args) -> int:
         patches.append("console")
         if args.console_key != "F11":
             patches.append(f"console-{args.console_key.lower()}")
-    bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, patches, None)
+    resolution = (640, 480)
+    if args.resolution:
+        m = re.fullmatch(r"(\d+)x(\d+)", args.resolution.lower())
+        if not m:
+            raise SystemExit("--resolution must look like 1280x720")
+        resolution = (int(m.group(1)), int(m.group(2)))
+    if resolution != (640, 480):
+        print("warning: resolution patch is experimental (bb-patch's edits; UI glitches are known)")
+        patches.append("resolution")
+    bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, patches, args.resolution)
     music = not args.no_music and all((MUSIC / f"Track{n}.ogg").exists() for n in TRACKS)
     if not music and not args.no_music:
         print("warning: music tracks missing, installing without CD music (rerun prepare with an OGG encoder)")
-    state = install_windows(args, music) if is_windows() else install_crossover(args, music)
+    install = install_windows if is_windows() else install_crossover
+    state = install(args, music, resolution)
     state["music"] = music
     state["patches"] = patches
+    state["resolution"] = list(resolution)
     STATE.write_text(json.dumps(state, indent=2))
     print(f"installed to {state['game_dir']} (music: {'on' if music else 'off'}, patches: {', '.join(patches)})")
     print("next: python3 scripts/bb.py run")
@@ -332,7 +351,7 @@ def cmd_run(args) -> int:
         raise SystemExit("run install first")
     state = json.loads(STATE.read_text())
     game_dir = Path(state["game_dir"])
-    write_ddraw_ini(game_dir, fullscreen=args.fullscreen)
+    write_ddraw_ini(game_dir, fullscreen=args.fullscreen, window=window_size(tuple(state.get("resolution", (640, 480)))))
     logs = LOCAL / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"run-{time.strftime('%Y%m%d-%H%M%S')}.log"
@@ -359,9 +378,11 @@ def main() -> int:
     pi.add_argument("--console", action="store_true", help="enable developer mode (cheats, editor)")
     pi.add_argument("--console-key", choices=["F11", "F12", "Z"], default="F11",
                     help="developer mode key (default F11, which macOS uses for Show Desktop)")
+    pi.add_argument("--resolution", metavar="WxH",
+                    help="experimental game resolution, e.g. 1280x720 (default 640x480)")
     pr = sub.add_parser("run", help="launch the game")
     mode = pr.add_mutually_exclusive_group()
-    mode.add_argument("--window", action="store_true", help="2x scaled window (default)")
+    mode.add_argument("--window", action="store_true", help="window, 2x for 640x480 (default)")
     mode.add_argument("--fullscreen", action="store_true", help="borderless fullscreen")
     args = p.parse_args()
     return {"prepare": cmd_prepare, "install": cmd_install, "run": cmd_run}[args.cmd](args)
