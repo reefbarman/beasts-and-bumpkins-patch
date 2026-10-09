@@ -1,0 +1,32 @@
+# Proprietary game files, saves, captures and analysis databases stay local.
+# The repo holds only our scripts, config and docs; users supply their own disc.
+.local/
+
+# Backstop patterns in case game or third-party files land outside .local/.
+*.iso
+*.bin
+*.cue
+*.img
+*.zip
+*.exe
+*.EXE
+*.dll
+*.DLL
+*.box
+*.BOX
+*.fat
+*.FAT
+*.vid
+*.VID
+*.dat
+*.DAT
+*.lud
+*.LUD
+*.sav
+*.SAV
+*.wav
+*.ogg
+*.gpr
+*.rep/
+.DS_Store
+__pycache__/
