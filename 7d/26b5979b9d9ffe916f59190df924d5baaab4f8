@@ -1,0 +1,34 @@
+.agentlink/.gitignore
+  h_e08a86bb3a33a2 1-5
+.gitignore
+  h_e08a86bb3a33a2 1-32
+README.md
+  h_e08a86bb3a33a2 1-94
+config/cnc-ddraw/ddraw.ini
+  h_e08a86bb3a33a2 1-36
+plans/beasts-and-bumpkins-restoration.md
+  h_e08a86bb3a33a2 1-143
+research/disc-and-executable.md
+  h_e08a86bb3a33a2 1-72
+scripts/bb.py
+  h_e08a86bb3a33a2 1-371
+scripts/bbpatch.py
+  h_e08a86bb3a33a2 1-189
+scripts/bincue.py
+  h_e08a86bb3a33a2 1-96
+scripts/iso9660.py
+  h_e08a86bb3a33a2 1-85
+scripts/peinfo.py
+  h_e08a86bb3a33a2 1-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d26b5979b9d9ffe916f59190df924d5baaab4f8",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
