@@ -71,6 +71,19 @@ IAT_REG_CLOSE   equ 0x6CA32C    ; RegCloseKey
 IAT_GET_MODULE  equ 0x6CA39C    ; GetModuleHandleA
 IAT_GET_PROC    equ 0x6CA4AC    ; GetProcAddress
 PORTRAIT        equ 0x6A98E0    ; portrait position x, y (set by 0x42A310)
+; Window resize after choosing a resolution (cnc-ddraw, see research/settings-menu.md)
+GAME_HWND       equ 0x5CD7C4    ; written after CreateWindowExA (0x40B956)
+IAT_GET_TICK    equ 0x6CA378    ; GetTickCount
+RESIZE_DELAY    equ 1000        ; ms the choice must stay unchanged
+WM_SIZING       equ 0x214
+WM_ENTERSIZEMOVE equ 0x231
+WM_EXITSIZEMOVE equ 0x232
+WM_WINDOWPOSCHANGING equ 0x46
+SWP_NOMOVE_NOSIZE equ 3
+RELOCK_DELAY    equ 300         ; ms after a resize before re-clipping the cursor
+GWL_STYLE       equ -16
+GWL_EXSTYLE     equ -20
+CENTRED         equ -32000      ; cnc-ddraw: window position unset, centre it
 
 FRONT_W         equ 640
 FRONT_H         equ 480
@@ -206,6 +219,7 @@ on_main_loop:
     pushfd
     pushad
     call sync_mode
+    call check_window_resize
     popad
     popfd
     mov eax, [G_SCREEN]
@@ -530,8 +544,7 @@ on_panel_fill:
 
 ; The game has no options menu. Page 1 (main menu) gets an OPTIONS item
 ; before QUIT, which opens page 17:
-;   Resolution: 1280 x 720   (select to cycle)
-;   (used from the next mission you start or load)
+;   Resolution: 1280 x 720   (select to cycle; the window follows it)
 ;   BACK
 ; The choice is saved to DisplayWidth/DisplayHeight in the game's registry
 ; key, which on_registry_read reads at startup.
@@ -563,8 +576,8 @@ on_menu_build:
     mov dword [ebx+M_COUNT], 6
     jmp .done
 .options:
-    ; The menu font has no digits, so the resolution line and the hint use
-    ; the save-slot font (type 1).
+    ; The menu font has no digits, so the resolution line uses the
+    ; save-slot font (type 1).
     mov esi, str_options
     lea edi, [ebx+M_TITLE]
     call copy_str
@@ -576,15 +589,10 @@ on_menu_build:
     call SPRINTF
     add esp, 16
     mov dword [ebx+M_ITEM_TEXT+I_TYPE], 1
-    mov esi, str_applies
+    mov esi, str_back
     lea edi, [ebx+M_ITEM_TEXT+ITEM_SIZE]
     call copy_str
-    mov dword [ebx+M_ITEM_TEXT+ITEM_SIZE+I_TYPE], 1
-    mov dword [ebx+M_ITEM_TEXT+ITEM_SIZE+I_SELECTABLE], 0
-    mov esi, str_back
-    lea edi, [ebx+M_ITEM_TEXT+2*ITEM_SIZE]
-    call copy_str
-    mov dword [ebx+M_COUNT], 3
+    mov dword [ebx+M_COUNT], 2
 .done:
     popad
     ret 4
@@ -623,14 +631,18 @@ on_menu_select:
     ret
 .options:
     mov eax, [ecx+M_SEL]
-    cmp eax, 2
+    cmp eax, 1
     je .back
     test eax, eax
     jz .cycle
-    ret                         ; the hint line
+    ret
 .cycle:
     push ecx
     call next_resolution
+    call [IAT_GET_TICK]         ; resize the window once the choice settles
+    add eax, RESIZE_DELAY
+    or eax, 1                   ; 0 means nothing pending
+    mov [resize_at], eax
     pop ecx
     push PAGE_OPTIONS           ; same page: rebuilds the text, keeps the selection
     call MENU_SHOW_PAGE
@@ -731,6 +743,140 @@ save_resolution:
     pop ebp
     ret
 
+; Called from the main loop inside pushad. Once RESIZE_DELAY has passed
+; since the last change on the OPTIONS page, size the window to the chosen
+; resolution.
+check_window_resize:
+    mov eax, [resize_at]
+    test eax, eax
+    jz .ret
+    call [IAT_GET_TICK]
+    sub eax, [resize_at]
+    js .ret                     ; not yet
+    mov dword [resize_at], 0
+    call resize_window
+.ret:
+    mov eax, [relock_at]
+    test eax, eax
+    jz .done
+    call [IAT_GET_TICK]
+    sub eax, [relock_at]
+    js .done
+    mov dword [relock_at], 0
+    ; cnc-ddraw clips the cursor to the window while it is locked, and
+    ; re-clips during the resize, before Wine on macOS has moved the window,
+    ; so the clip covers the old area. A WM_WINDOWPOSCHANGING with only
+    ; SWP_NOMOVE | SWP_NOSIZE makes it unlock and lock again (its
+    ; focus-steal workaround), which re-reads the window's position.
+    push relock_pos
+    push 0
+    push WM_WINDOWPOSCHANGING
+    push dword [GAME_HWND]
+    call [send_message]
+.done:
+    ret
+
+; Make cnc-ddraw's window mission_w x mission_h (client area, centred).
+; cnc-ddraw scales whatever mode the game uses into its configured window
+; size and only grows the window for a mode larger than that, so once the
+; window matches the mission size the 640x480 <-> mission switches leave it
+; alone. Its only way to take a new size is a user resize, so replay one to
+; its window procedure: WM_ENTERSIZEMOVE, WM_SIZING with the outer rect
+; (stops the renderer and stores size and position; wParam 0 skips its
+; aspect and minimum-size edits; a CENTRED position means "centre it"),
+; then WM_EXITSIZEMOVE (re-runs SetDisplayMode, which moves and sizes the
+; window). GetWindowRect/GetClientRect/SetWindowPos are faked by cnc-ddraw
+; for this window, so none are used. savesettings=1 keeps the size for the
+; next launch. In borderless fullscreen it only records the size for when
+; the window comes back. Clobbers all but ebp.
+resize_window:
+    push ebp
+    mov ebp, esp
+    sub esp, 32                 ; -4 SendMessageA, -8 GetWindowLongA,
+                                ; -12 AdjustWindowRectEx, -16 hwnd, -32 rect
+    mov eax, [GAME_HWND]
+    test eax, eax
+    jz .out
+    mov [ebp-16], eax
+    push str_user32
+    call [IAT_GET_MODULE]
+    test eax, eax
+    jz .out
+    mov ebx, eax
+    mov esi, user32_names
+    lea edi, [ebp-4]
+.lookup:                        ; fill -4, -8, -12 in name order
+    push esi
+    push ebx
+    call [IAT_GET_PROC]
+    test eax, eax
+    jz .out
+    mov [edi], eax
+    sub edi, 4
+.skip:
+    lodsb
+    test al, al
+    jnz .skip
+    cmp byte [esi], 0
+    jne .lookup
+
+    mov dword [ebp-32], CENTRED
+    mov dword [ebp-28], CENTRED
+    mov eax, [mission_w]
+    add eax, CENTRED
+    mov [ebp-24], eax
+    mov eax, [mission_h]
+    add eax, CENTRED
+    mov [ebp-20], eax
+    push GWL_EXSTYLE
+    push dword [ebp-16]
+    call [ebp-8]
+    mov ebx, eax
+    push GWL_STYLE
+    push dword [ebp-16]
+    call [ebp-8]
+    push ebx                    ; client rect -> window rect
+    push 0                      ; no menu
+    push eax
+    lea eax, [ebp-32]
+    push eax
+    call [ebp-12]
+
+    push 0
+    push 0
+    push WM_ENTERSIZEMOVE
+    push dword [ebp-16]
+    call [ebp-4]
+    lea eax, [ebp-32]
+    push eax
+    push 0
+    push WM_SIZING
+    push dword [ebp-16]
+    call [ebp-4]
+    push 0
+    push 0
+    push WM_EXITSIZEMOVE
+    push dword [ebp-16]
+    call [ebp-4]
+    mov eax, [ebp-4]
+    mov [send_message], eax
+    call [IAT_GET_TICK]
+    add eax, RELOCK_DELAY
+    or eax, 1
+    mov [relock_at], eax
+.out:
+    mov esp, ebp
+    pop ebp
+    ret
+
+resize_at       dd 0            ; GetTickCount when the window should resize, 0 = none
+relock_at       dd 0            ; GetTickCount when to re-clip the cursor, 0 = none
+send_message    dd 0            ; SendMessageA, set by resize_window
+relock_pos      dd 0, 0, 0, 0, 0, 0, SWP_NOMOVE_NOSIZE   ; WINDOWPOS
+str_user32      db 'user32.dll', 0
+user32_names    db 'SendMessageA', 0, 'GetWindowLongA', 0
+                db 'AdjustWindowRectEx', 0, 0
+
 ; strcpy(edi, esi). Clobbers eax, esi, edi.
 copy_str:
     mov al, [esi]
@@ -755,7 +901,7 @@ presets_end:
 str_options     db 'OPTIONS', 0
 str_back        db 'BACK', 0
 fmt_resolution  db 'Resolution: %d x %d', 0
-str_applies     db '(applies from the next mission)', 0
+
 str_advapi      db 'advapi32.dll', 0
 str_reg_set     db 'RegSetValueExA', 0
 str_display_w   db 'DisplayWidth', 0

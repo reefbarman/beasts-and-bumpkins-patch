@@ -101,11 +101,22 @@ Two options:
 ## Implemented (screenmode v6)
 
 - `on_menu_build` (jump from `0x41ED10`) runs the original builder, then inserts OPTIONS before QUIT on page 1 and builds page 17. `on_menu_select` (jump from `0x41F810`) opens page 17 from item 4, passes item 5 (QUIT) to the original as item 4, and handles page 17. It lives in `screenmode` (which owns `mission_w`/`mission_h`), and `bb.py install` now always applies screenmode.
-- The menu font (type 0) has no digits: they draw as blank space. The resolution line and the hint use the save-slot font (type 1, item field `-4`), which does. The hint is not selectable (item field `+0x114` = 0).
+- The menu font (type 0) has no digits: they draw as blank space. The resolution line uses the save-slot font (type 1, item field `-4`), which does. Page 17 is just Resolution and BACK.
 - Saved with `RegSetValueExA` looked up through `GetModuleHandleA("advapi32.dll")` + `GetProcAddress`, on the key the game reads (`0x484134`).
 - `on_enter_mission` also sets the portrait position (`0x6A98E0`), since its constructor runs once at startup (`0x41489F`, next to the menu init).
 - cnc-ddraw: `savesettings=1`; `bb.py run` keeps the installed `ddraw.ini` window size and only updates `fullscreen=`.
-- Tested at 1280x720: the page works, the numbers show, and a new size takes effect in the next mission. Expected, not a regression: starting a mission passes through the briefing and videos at 640x480, so the picture switches size a few times before the mission settles.
+- Tested at 1280x720: the page works, the numbers show, and a new size takes effect in the next mission.
+
+## Window follows the chosen resolution
+
+Originally the window stayed at the install-time size, and choosing a larger resolution made cnc-ddraw grow (and recentre) the window whenever the mission mode exceeded it, then shrink back for 640x480 screens. Now the window is set once to the chosen size and every game mode is scaled into it.
+
+- cnc-ddraw (`dd_SetDisplayMode`) sizes the window to its configured `window_rect`, only enlarging it for a game mode larger than that. With `window_rect` equal to the mission size, the 640x480 to mission switches leave the window alone.
+- The only way to change `window_rect` at run time is a user resize. One second after the last change on the OPTIONS page (`resize_at`, checked from the main-loop hook), `resize_window` replays one by sending to the game window (`0x5CD7C4`): `WM_ENTERSIZEMOVE`; `WM_SIZING` with wParam 0 (skips the aspect and minimum-size edits) and an outer rect made with `AdjustWindowRectEx` from the client rect at -32000,-32000 (cnc-ddraw's "centre it" position); `WM_EXITSIZEMOVE`, which re-runs `SetDisplayMode` and moves/sizes the window. `SendMessageA`, `GetWindowLongA` and `AdjustWindowRectEx` come from `GetProcAddress` on user32.
+- cnc-ddraw fakes `GetWindowRect`, `GetClientRect` and `GetSystemMetrics` (they report the game mode, 640x480) and ignores `SetWindowPos`/`MoveWindow` on the game window, so none of them can be used.
+- After the resize, the cursor stayed clipped to the old area: cnc-ddraw re-locks the mouse inside `SetDisplayMode` before Wine on macOS has moved the window. 300 ms later a `WM_WINDOWPOSCHANGING` with only `SWP_NOMOVE | SWP_NOSIZE` triggers its focus-steal workaround (unlock, lock), which re-clips to the new position.
+- `savesettings=1` saves the size on exit, so the next launch opens at the chosen size. `bb.py install --resolution` sets both the registry and `ddraw.ini` to the same size.
+- Tested at 1280x720 to 1600x900 and 1024x768: one resize, no size change through briefing, videos and missions, cursor reaches every edge.
 
 ## Risks to check while implementing
 

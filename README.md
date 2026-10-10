@@ -51,9 +51,12 @@ python3 scripts/bb.py install
 #    --console --console-key Z (or F12) uses another key; macOS takes F11 for Show Desktop
 
 # 3. Play
-python3 scripts/bb.py run               # 2x scaled window (1280x960)
+python3 scripts/bb.py run               # window sized to the chosen resolution
 python3 scripts/bb.py run --fullscreen  # borderless fullscreen, aspect ratio kept
+python3 scripts/bb.py stop              # close a running game (install and run do this first)
 ```
+
+The main menu's OPTIONS page cycles the mission resolution. About a second after you stop on one, the window resizes to it and then stays that size: menus, briefings and videos (640x480) are scaled up into it.
 
 On Windows use `py scripts\bb.py ...`. In game, Alt+Enter switches between window and fullscreen and Ctrl+Tab releases the mouse. Logs go to `.local/logs/`.
 

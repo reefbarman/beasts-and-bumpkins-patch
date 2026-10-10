@@ -320,7 +320,37 @@ def install_crossover(args, music: bool, resolution: tuple[int, int]) -> dict:
     return {"platform": "crossover", "bottle": bottle, "game_dir": str(game_dir), "win_dir": win_dir}
 
 
+def stop_game() -> bool:
+    """Close a running BEASTS.EXE (unsaved progress is lost). True if one was running."""
+    if is_windows():
+        found = subprocess.run(["tasklist", "/FI", "IMAGENAME eq BEASTS.EXE", "/NH"],
+                               capture_output=True, text=True).stdout
+        if "BEASTS.EXE" not in found.upper():
+            return False
+        subprocess.run(["taskkill", "/IM", "BEASTS.EXE", "/F"], capture_output=True)
+        print("closed the running game")
+        return True
+    if subprocess.run(["pgrep", "-f", "BEASTS.EXE"], capture_output=True).returncode != 0:
+        return False
+    subprocess.run(["pkill", "-f", "BEASTS.EXE"])
+    for _ in range(50):
+        if subprocess.run(["pgrep", "-f", "BEASTS.EXE"], capture_output=True).returncode != 0:
+            break
+        time.sleep(0.1)
+    else:
+        subprocess.run(["pkill", "-9", "-f", "BEASTS.EXE"])
+    print("closed the running game")
+    return True
+
+
+def cmd_stop(args) -> int:
+    if not stop_game():
+        print("the game isn't running")
+    return 0
+
+
 def cmd_install(args) -> int:
+    stop_game()
     for name in WRAPPERS:
         fetch_wrapper(name)
     if not (FILES / "BEASTS.EXE").exists():
@@ -364,6 +394,7 @@ def cmd_run(args) -> int:
         raise SystemExit("run install first")
     state = json.loads(STATE.read_text())
     game_dir = Path(state["game_dir"])
+    stop_game()
     write_ddraw_ini(game_dir, fullscreen=args.fullscreen, window=None)
     logs = LOCAL / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -395,12 +426,13 @@ def main() -> int:
                     help="initial mission resolution, e.g. 1280x720 (default 640x480); also sets the "
                          "window size. Change it later from the main menu's OPTIONS page. Menus, "
                          "briefings and videos stay 640x480")
-    pr = sub.add_parser("run", help="launch the game")
+    sub.add_parser("stop", help="close the running game (install and run do this first)")
+    pr = sub.add_parser("run", help="launch the game, closing any running copy first")
     mode = pr.add_mutually_exclusive_group()
     mode.add_argument("--window", action="store_true", help="window, 2x for 640x480 (default)")
     mode.add_argument("--fullscreen", action="store_true", help="borderless fullscreen")
     args = p.parse_args()
-    return {"prepare": cmd_prepare, "install": cmd_install, "run": cmd_run}[args.cmd](args)
+    return {"prepare": cmd_prepare, "install": cmd_install, "run": cmd_run, "stop": cmd_stop}[args.cmd](args)
 
 
 if __name__ == "__main__":
