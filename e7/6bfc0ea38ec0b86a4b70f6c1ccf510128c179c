@@ -1,0 +1,18 @@
+plans/beasts-and-bumpkins-restoration.md
+  h_e08a86bb3a33a2 23,26-30,39-40,131,136-140
+  h_e08a86bb3a33a2 22,24-25,127,135
+research/disc-and-executable.md
+  h_e08a86bb3a33a2 3,5,8-10
+  h_e08a86bb3a33a2 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e76bfc0ea38ec0b86a4b70f6c1ccf510128c179c",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
