@@ -22,6 +22,8 @@ READ_REGISTRY   equ 0x4064B0    ; reads DisplayWidth/DisplayHeight among others
 CREATE_PRIMARY  equ 0x42EE50    ; Display_CreatePrimary()
 CLEAR_SCREEN    equ 0x42F200    ; Display_ClearScreen()
 SET_CLIP        equ 0x42F410    ; Display_SetClip(left, top, right, bottom)
+REQUEST_REDRAW  equ 0x403190    ; full map repaint for every buffer in the flip chain
+
 
 D_DDRAW         equ 0x30        ; IDirectDraw*
 D_PRIMARY       equ 0x34        ; IDirectDrawSurface* flip chain
@@ -38,7 +40,7 @@ PORTRAIT_INSET  equ 100         ; 640x480: portrait at 540,380
 ; bbpatch.py reads this table; keep the order in sync with its HOOKS.
 header:
     db 'BBSM'
-    dd 2                        ; version
+    dd 3                        ; version
     dd on_registry_read         ; +0x08
     dd on_enter_mission         ; +0x0C
     dd on_enter_menu            ; +0x10
@@ -280,6 +282,10 @@ set_mode:
     mov ecx, [ecx]
     call [ecx+DDS_SETPALETTE]
 .no_palette:
+    ; The map view only repaints dirty areas, so after the clear it would
+    ; leave black patches (flickering between the two buffers) until the
+    ; camera moves. Ask for a full repaint, as SetViewMode does.
+    call REQUEST_REDRAW
     pop ebx
 .ret:
     ret
