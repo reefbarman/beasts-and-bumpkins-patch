@@ -1,0 +1,27 @@
+CONTRIBUTING.md
+  h_e08a86bb3a33a2 1-54
+README.md
+  h_e08a86bb3a33a2 10-19,125-138
+  s_ec19d114a9dd29::t_c6ede219624de7 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31146e93febf84d5186ea078c297bb7bf97b177b",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_ec19d114a9dd29": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "09f8891e-deaa-4cf1-a513-4549a1fba68f",
+        "model": "unknown"
+      },
+      "human_author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
