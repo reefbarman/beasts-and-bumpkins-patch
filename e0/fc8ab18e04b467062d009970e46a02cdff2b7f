@@ -1,0 +1,22 @@
+README.md
+  h_e08a86bb3a33a2 86-88
+  h_e08a86bb3a33a2 85,89-92
+patches/qol.asm
+  h_e08a86bb3a33a2 2-3,29-53,59,63-64,106-345,481-500
+  h_e08a86bb3a33a2 346
+research/display-and-screens.md
+  h_e08a86bb3a33a2 177-184
+scripts/bbpatch.py
+  h_e08a86bb3a33a2 23,137-138,140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0fc8ab18e04b467062d009970e46a02cdff2b7f",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
