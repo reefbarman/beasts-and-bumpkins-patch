@@ -7,6 +7,16 @@ An unofficial, fan-made patch that gets the 1997 Worldweaver/EA game Beasts & Bu
 
 See `plans/beasts-and-bumpkins-restoration.md` for the roadmap and `research/` for verified findings.
 
+**This is a community project and help is very welcome.** Whether you can test on Windows, have a different disc version, know your way around x86, or just want to report how it ran for you, see [Contributing](#contributing).
+
+<p align="center">
+  <img src="media/screens/ingame.png" alt="A mission running at 1920x1080 with the HUD stretched to the full width" width="100%">
+</p>
+<p align="center">
+  <img src="media/screens/menu.png" alt="The main menu with the new OPTIONS entry" width="60%">
+</p>
+<p align="center"><em>A mission at 1920x1080 (top) and the main menu with the new OPTIONS page (bottom)</em></p>
+
 ## This repo contains no game files
 
 You need to supply the game yourself. The scripts only work with the English EU CD release (the `BEASTS.EXE` with md5 `2d2852fcb22e6f65a0cf3415abaf4411`) and refuse anything else. Everything generated (extracted files, patched exe, music, downloaded wrappers, logs) goes into the ignored `.local/` folder.
@@ -111,6 +121,21 @@ python3 scripts/bb.py install --resolution 1280x720
 ```
 
 `research/` holds the reverse-engineering notes (addresses, data layouts, how each hook works) and `plans/` the roadmap.
+
+## Contributing
+
+This started as one person wanting to play an old favourite again, and it will go a lot further with more people involved. Issues, pull requests, test reports and ideas are all welcome, and you don't need to be an assembly expert to help.
+
+Good places to start:
+
+- **Test on Windows.** The Windows path is scripted but hasn't been run on real hardware yet. A report saying "it worked" or "it broke here" is genuinely useful.
+- **Other disc versions.** Only the English EU CD is supported. If you have another release (US, German, French, a budget re-release), the hashes and a note on what differs would help us support it.
+- **Report how it plays.** Glitches at particular resolutions, HUD elements in the wrong place, crashes, slowdowns. Screenshots and your OS, resolution and window/fullscreen setting make bugs much easier to chase.
+- **More fixes and features.** Wider aspect ratios, HUD polish, more quality-of-life keys, better scaling. Open an issue first if it's a big change so we can talk it through.
+- **Reverse engineering.** The longer-term goal is to understand enough of `BEASTS.EXE` to decompile and rebuild it. New findings about functions, data structures or file formats are valuable even without a patch, so add them to `research/`.
+- **Docs.** Clearer setup steps, troubleshooting tips, or anything that tripped you up.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and send changes. Please never attach or commit game files (the EXE, disc images, extracted data or music); everything generated lives in the ignored `.local/` folder for that reason.
 
 ## Credits and licence
 
