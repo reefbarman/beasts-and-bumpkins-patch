@@ -1,0 +1,14 @@
+research/settings-menu.md
+  h_e08a86bb3a33a2 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3372aadd7ef13a0bea2ea1c4b74b336ff33f9c67",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
