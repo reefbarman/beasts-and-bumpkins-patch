@@ -98,6 +98,15 @@ Two options:
 1. **Fixed window, scaled (recommended).** Keep a fixed `width`/`height` and enable `savesettings=1`, so whatever size you drag the window to sticks. The game resolution controls how much of the map you see; the window controls how big it is on screen. Menus and missions both scale into the same window with no resizing or jumping. Downside: at non-integer scales nearest-neighbour pixels are uneven (a sharper/softer shader choice could be a later setting).
 2. **Window follows the game.** `width=0`/`height=0`: the window snaps to 640x480 for menus and to the mission size in missions, recentring each time. Pixel-perfect, but the window jumps size on every menu/mission switch, which is jarring and fights the macOS window manager.
 
+## Implemented (screenmode v6)
+
+- `on_menu_build` (jump from `0x41ED10`) runs the original builder, then inserts OPTIONS before QUIT on page 1 and builds page 17. `on_menu_select` (jump from `0x41F810`) opens page 17 from item 4, passes item 5 (QUIT) to the original as item 4, and handles page 17. It lives in `screenmode` (which owns `mission_w`/`mission_h`), and `bb.py install` now always applies screenmode.
+- The menu font (type 0) has no digits: they draw as blank space. The resolution line and the hint use the save-slot font (type 1, item field `-4`), which does. The hint is not selectable (item field `+0x114` = 0).
+- Saved with `RegSetValueExA` looked up through `GetModuleHandleA("advapi32.dll")` + `GetProcAddress`, on the key the game reads (`0x484134`).
+- `on_enter_mission` also sets the portrait position (`0x6A98E0`), since its constructor runs once at startup (`0x41489F`, next to the menu init).
+- cnc-ddraw: `savesettings=1`; `bb.py run` keeps the installed `ddraw.ini` window size and only updates `fullscreen=`.
+- Tested at 1280x720: the page works, the numbers show, and a new size takes effect in the next mission. Expected, not a regression: starting a mission passes through the briefing and videos at 640x480, so the picture switches size a few times before the mission settles.
+
 ## Risks to check while implementing
 
 - The menu font must have the digits and `X` (the save slot names suggest digits render; to confirm on screen).

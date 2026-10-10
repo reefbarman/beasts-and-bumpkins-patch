@@ -46,6 +46,32 @@ DD_SETDISPLAYMODE   equ 0x54    ; IDirectDraw vtable
 DDS_RELEASE         equ 0x08    ; IDirectDrawSurface vtable
 DDS_SETPALETTE      equ 0x7C
 
+; Main menu OPTIONS page (research/settings-menu.md). Menu object fields:
+M_PAGE          equ 0x06
+M_SEL           equ 0x0A
+M_COUNT         equ 0x16
+M_TITLE         equ 0x1E
+M_ITEM_TEXT     equ 0x122       ; item i text at +0x122 + i*ITEM_SIZE
+ITEM_SIZE       equ 0x11C
+I_TYPE          equ -4          ; from the item text: 0 menu font (letters only),
+                                ; 1 save-slot font (has digits and lower case)
+I_SELECTABLE    equ 0x114       ; from the item text: 0 = the cursor skips it
+MENU_BUILD_BODY equ 0x41ED15    ; Menu_Build(page) after its first 5 bytes
+MENU_SELECT_BODY equ 0x41F815   ; Menu_Select() after its first 5 bytes
+MENU_SHOW_PAGE  equ 0x41F7A0    ; thiscall Menu_ShowPage(page)
+PAGE_MAIN       equ 1
+PAGE_OPTIONS    equ 17          ; unused by the game; its builder and handler ignore it
+SPRINTF         equ 0x46BAE0    ; cdecl sprintf(buf, fmt, ...)
+REG_KEY_NAME    equ 0x484134    ; "Software\Worldweaver Productions\Beasts and Bumpkins"
+HKCU            equ 0x80000001
+KEY_SET_VALUE   equ 2
+REG_DWORD       equ 4
+IAT_REG_OPEN    equ 0x6CA330    ; RegOpenKeyExA
+IAT_REG_CLOSE   equ 0x6CA32C    ; RegCloseKey
+IAT_GET_MODULE  equ 0x6CA39C    ; GetModuleHandleA
+IAT_GET_PROC    equ 0x6CA4AC    ; GetProcAddress
+PORTRAIT        equ 0x6A98E0    ; portrait position x, y (set by 0x42A310)
+
 FRONT_W         equ 640
 FRONT_H         equ 480
 PORTRAIT_INSET  equ 100         ; 640x480: portrait at 540,380
@@ -54,7 +80,7 @@ PORTRAIT_INSET  equ 100         ; 640x480: portrait at 540,380
 ; bbpatch.py reads this table; keep the order in sync with its HOOKS.
 header:
     db 'BBSM'
-    dd 5                        ; version
+    dd 6                        ; version
     dd on_registry_read         ; +0x08
     dd on_enter_mission         ; +0x0C
     dd on_enter_menu            ; +0x10
@@ -80,6 +106,8 @@ header:
     dd cmp_tab_lo               ; +0x60
     dd cmp_tab_hi               ; +0x64
     dd on_panel_fill            ; +0x68
+    dd on_menu_build            ; +0x6C
+    dd on_menu_select           ; +0x70
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -115,6 +143,14 @@ on_enter_mission:
     push dword [mission_w]
     call set_mode
     add esp, 8
+    ; The portrait constructor (on_portrait_init) runs once at startup, so
+    ; place it again in case the size was changed from the OPTIONS page.
+    mov eax, [mission_w]
+    sub eax, PORTRAIT_INSET
+    mov [PORTRAIT], eax
+    mov eax, [mission_h]
+    sub eax, PORTRAIT_INSET
+    mov [PORTRAIT+4], eax
     popad
     popfd
     mov dword [G_SCREEN], 2
@@ -489,6 +525,241 @@ on_panel_fill:
     pop esi
     pop ebp
     ret 16
+
+; ---------------------------------------------------------------- options
+
+; The game has no options menu. Page 1 (main menu) gets an OPTIONS item
+; before QUIT, which opens page 17:
+;   Resolution: 1280 x 720   (select to cycle)
+;   (used from the next mission you start or load)
+;   BACK
+; The choice is saved to DisplayWidth/DisplayHeight in the game's registry
+; key, which on_registry_read reads at startup.
+
+; Jumped to from the entry of Menu_Build(page) (0x41ED10, thiscall, ret 4).
+; Run the original, then adjust pages 1 and 17.
+on_menu_build:
+    push ecx
+    push dword [esp+8]          ; page
+    call .orig
+    pop ecx
+    pushad
+    mov ebx, ecx
+    mov eax, [esp+36]           ; page (32 pushad + ret)
+    cmp eax, PAGE_MAIN
+    je .main
+    cmp eax, PAGE_OPTIONS
+    je .options
+    jmp .done
+.main:
+    cmp dword [ebx+M_COUNT], 5
+    jne .done
+    lea esi, [ebx+M_ITEM_TEXT+4*ITEM_SIZE]   ; QUIT moves down one
+    lea edi, [ebx+M_ITEM_TEXT+5*ITEM_SIZE]
+    call copy_str
+    mov esi, str_options
+    lea edi, [ebx+M_ITEM_TEXT+4*ITEM_SIZE]
+    call copy_str
+    mov dword [ebx+M_COUNT], 6
+    jmp .done
+.options:
+    ; The menu font has no digits, so the resolution line and the hint use
+    ; the save-slot font (type 1).
+    mov esi, str_options
+    lea edi, [ebx+M_TITLE]
+    call copy_str
+    push dword [mission_h]
+    push dword [mission_w]
+    push fmt_resolution
+    lea eax, [ebx+M_ITEM_TEXT]
+    push eax
+    call SPRINTF
+    add esp, 16
+    mov dword [ebx+M_ITEM_TEXT+I_TYPE], 1
+    mov esi, str_applies
+    lea edi, [ebx+M_ITEM_TEXT+ITEM_SIZE]
+    call copy_str
+    mov dword [ebx+M_ITEM_TEXT+ITEM_SIZE+I_TYPE], 1
+    mov dword [ebx+M_ITEM_TEXT+ITEM_SIZE+I_SELECTABLE], 0
+    mov esi, str_back
+    lea edi, [ebx+M_ITEM_TEXT+2*ITEM_SIZE]
+    call copy_str
+    mov dword [ebx+M_COUNT], 3
+.done:
+    popad
+    ret 4
+.orig:                          ; the 5 displaced bytes, then the original
+    sub esp, 4
+    push ebx
+    push esi
+    jmp MENU_BUILD_BODY
+
+; Jumped to from the entry of Menu_Select() (0x41F810, thiscall, no args),
+; which acts on the selected item of the current page.
+on_menu_select:
+    mov eax, [ecx+M_PAGE]
+    cmp eax, PAGE_MAIN
+    je .main
+    cmp eax, PAGE_OPTIONS
+    je .options
+.orig:
+    push ebx
+    push esi
+    mov eax, [ecx+M_PAGE]
+    jmp MENU_SELECT_BODY
+.main:
+    cmp dword [ecx+M_COUNT], 6
+    jne .orig
+    mov eax, [ecx+M_SEL]
+    cmp eax, 4
+    je .open
+    cmp eax, 5
+    jne .orig
+    mov dword [ecx+M_SEL], 4    ; QUIT is item 4 to the original handler
+    jmp .orig
+.open:
+    push PAGE_OPTIONS
+    call MENU_SHOW_PAGE
+    ret
+.options:
+    mov eax, [ecx+M_SEL]
+    cmp eax, 2
+    je .back
+    test eax, eax
+    jz .cycle
+    ret                         ; the hint line
+.cycle:
+    push ecx
+    call next_resolution
+    pop ecx
+    push PAGE_OPTIONS           ; same page: rebuilds the text, keeps the selection
+    call MENU_SHOW_PAGE
+    ret
+.back:
+    push ecx
+    push PAGE_MAIN
+    call MENU_SHOW_PAGE
+    pop ecx
+    mov dword [ecx+M_SEL], 4    ; back on OPTIONS
+    ret
+
+; Step mission_w/mission_h to the next preset and save it. Preserves
+; ebx, esi, edi, ebp.
+next_resolution:
+    push esi
+    mov esi, presets
+.find:
+    cmp esi, presets_end
+    jae .first                  ; current size isn't a preset
+    mov eax, [esi]
+    cmp eax, [mission_w]
+    jne .next
+    mov eax, [esi+4]
+    cmp eax, [mission_h]
+    je .found
+.next:
+    add esi, 8
+    jmp .find
+.found:
+    add esi, 8
+    cmp esi, presets_end
+    jb .set
+.first:
+    mov esi, presets
+.set:
+    mov eax, [esi]
+    mov [mission_w], eax
+    mov eax, [esi+4]
+    mov [mission_h], eax
+    pop esi
+    jmp save_resolution
+
+; Write mission_w/mission_h to DisplayWidth/DisplayHeight. The game only
+; imports registry reads, so look up RegSetValueExA at run time. Failure
+; is silent: the setting then lasts until the game exits.
+save_resolution:
+    push ebp
+    mov ebp, esp
+    push esi
+    sub esp, 8                  ; [ebp-12] hkey, [ebp-8] value
+    lea eax, [ebp-12]
+    push eax
+    push KEY_SET_VALUE
+    push 0
+    push REG_KEY_NAME
+    push HKCU
+    call [IAT_REG_OPEN]
+    test eax, eax
+    jnz .out
+    push str_advapi
+    call [IAT_GET_MODULE]
+    test eax, eax
+    jz .close
+    push str_reg_set
+    push eax
+    call [IAT_GET_PROC]
+    test eax, eax
+    jz .close
+    mov esi, eax
+    mov eax, [mission_w]
+    mov [ebp-8], eax
+    push 4
+    lea eax, [ebp-8]
+    push eax
+    push REG_DWORD
+    push 0
+    push str_display_w
+    push dword [ebp-12]
+    call esi
+    mov eax, [mission_h]
+    mov [ebp-8], eax
+    push 4
+    lea eax, [ebp-8]
+    push eax
+    push REG_DWORD
+    push 0
+    push str_display_h
+    push dword [ebp-12]
+    call esi
+.close:
+    push dword [ebp-12]
+    call [IAT_REG_CLOSE]
+.out:
+    mov esp, ebp
+    sub esp, 4
+    pop esi
+    pop ebp
+    ret
+
+; strcpy(edi, esi). Clobbers eax, esi, edi.
+copy_str:
+    mov al, [esi]
+    mov [edi], al
+    inc esi
+    inc edi
+    test al, al
+    jnz copy_str
+    ret
+
+presets:
+    dd 640, 480
+    dd 800, 600
+    dd 1024, 768
+    dd 1280, 720
+    dd 1280, 800
+    dd 1366, 768
+    dd 1600, 900
+    dd 1920, 1080
+presets_end:
+
+str_options     db 'OPTIONS', 0
+str_back        db 'BACK', 0
+fmt_resolution  db 'Resolution: %d x %d', 0
+str_applies     db '(applies from the next mission)', 0
+str_advapi      db 'advapi32.dll', 0
+str_reg_set     db 'RegSetValueExA', 0
+str_display_w   db 'DisplayWidth', 0
+str_display_h   db 'DisplayHeight', 0
 
 ; ---------------------------------------------------------------- helpers
 

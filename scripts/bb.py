@@ -243,12 +243,19 @@ def copy_game(dest: Path, music: bool, resolution: tuple[int, int]) -> None:
             (dest / name).unlink(missing_ok=True)
 
 
-def write_ddraw_ini(dest: Path, fullscreen: bool, window: tuple[int, int]) -> None:
-    text = (CONFIG / "cnc-ddraw" / "ddraw.ini").read_text()
+def write_ddraw_ini(dest: Path, fullscreen: bool, window: tuple[int, int] | None) -> None:
+    """Write ddraw.ini from the template. With window None, keep the installed
+    file's window size and position (cnc-ddraw saves them on exit)."""
+    path = dest / "ddraw.ini"
+    if window is None and path.exists():
+        text = path.read_text()
+    else:
+        text = (CONFIG / "cnc-ddraw" / "ddraw.ini").read_text()
+        w, h = window or (1280, 960)
+        text = re.sub(r"(?m)^width=.*$", f"width={w}", text)
+        text = re.sub(r"(?m)^height=.*$", f"height={h}", text)
     text = re.sub(r"(?m)^fullscreen=.*$", f"fullscreen={'true' if fullscreen else 'false'}", text)
-    text = re.sub(r"(?m)^width=.*$", f"width={window[0]}", text)
-    text = re.sub(r"(?m)^height=.*$", f"height={window[1]}", text)
-    (dest / "ddraw.ini").write_text(text)
+    path.write_text(text)
 
 
 def reg_file_text(values: dict, overrides: dict) -> str:
@@ -331,9 +338,9 @@ def cmd_install(args) -> int:
         resolution = (int(m.group(1)), int(m.group(2)))
         if resolution[0] < 640 or resolution[1] < 480:
             raise SystemExit("--resolution must be at least 640x480")
-    if resolution != (640, 480):
-        print("note: larger resolutions are experimental; some mission HUD items are still misplaced")
-        patches.append("screenmode")
+    # Always installed: it does nothing at 640x480, and its main menu OPTIONS
+    # page can switch to a larger mission size later.
+    patches.append("screenmode")
     bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, patches, None)
     music = not args.no_music and all((MUSIC / f"Track{n}.ogg").exists() for n in TRACKS)
     if not music and not args.no_music:
@@ -357,7 +364,7 @@ def cmd_run(args) -> int:
         raise SystemExit("run install first")
     state = json.loads(STATE.read_text())
     game_dir = Path(state["game_dir"])
-    write_ddraw_ini(game_dir, fullscreen=args.fullscreen, window=window_size(tuple(state.get("resolution", (640, 480)))))
+    write_ddraw_ini(game_dir, fullscreen=args.fullscreen, window=None)
     logs = LOCAL / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"run-{time.strftime('%Y%m%d-%H%M%S')}.log"
@@ -385,8 +392,9 @@ def main() -> int:
     pi.add_argument("--console-key", choices=["F11", "F12", "Z"], default="F11",
                     help="developer mode key (default F11, which macOS uses for Show Desktop)")
     pi.add_argument("--resolution", metavar="WxH",
-                    help="experimental mission resolution, e.g. 1280x720 (default 640x480); "
-                         "menus, briefings and videos stay 640x480")
+                    help="initial mission resolution, e.g. 1280x720 (default 640x480); also sets the "
+                         "window size. Change it later from the main menu's OPTIONS page. Menus, "
+                         "briefings and videos stay 640x480")
     pr = sub.add_parser("run", help="launch the game")
     mode = pr.add_mutually_exclusive_group()
     mode.add_argument("--window", action="store_true", help="window, 2x for 640x480 (default)")

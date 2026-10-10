@@ -20,9 +20,10 @@ Usage:
 
 Default patches: nocd. Optional: console, console-f12 / console-z (developer
 mode on F12 or Z instead of F11), qol (WASD scrolling, F5 quicksave, F9
-quickload), screenmode (640x480 front end, registry size in missions; needs
-qol), resolution (bb-patch's EXE default edits; superseded by screenmode plus
-the DisplayWidth/DisplayHeight registry values).
+quickload), screenmode (640x480 front end, registry size in missions, main
+menu OPTIONS page to change it; needs qol), resolution (bb-patch's EXE
+default edits; superseded by screenmode plus the DisplayWidth/DisplayHeight
+registry values).
 """
 
 from __future__ import annotations
@@ -175,8 +176,10 @@ SCREENMODE_HOOKS = [
     (0x414D4F, "3df4010000", 23),            # message-log tab click zone right
     (0x4150FA, "3df4010000", 23),            # message-log tab hover zone right
     (0x41A714, "e877560100", 24),            # bottom panel stone filler blit
+    (0x41ED10, "83ec045356", 25),            # Menu_Build(page) entry: OPTIONS page
+    (0x41F810, "53568b4106", 26),            # Menu_Select() entry: OPTIONS page
 ]
-SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0}
+SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0, 0x41ED10, 0x41F810}
 
 
 def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, list[int]]:
