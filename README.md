@@ -41,17 +41,26 @@ Wrappers are downloaded from their GitHub releases and checked against pinned SH
 
 ## Requirements
 
-- Python 3.9+ (`python3` on macOS, `py` on Windows)
-- An OGG Vorbis encoder for the music (optional, the game runs without it):
-  - macOS: `brew install vorbis-tools`
-  - Windows: `oggenc.exe` from vorbis-tools, or an `ffmpeg` build with libvorbis, on your `PATH`
-- macOS only: CrossOver in `/Applications`
+- Your copy of the game in any of these forms: a BIN/CUE disc image, an ISO, the CD itself, or a folder with the CD's files. Only BIN/CUE includes the CD music (it lives in the disc's audio tracks), the others install without it.
+- Python 3.9+. On Windows, `Install.bat` offers to install it for you with winget.
+- macOS only: [CrossOver](https://www.codeweavers.com/crossover) in `/Applications` (paid, with a free 14-day trial)
+- For the CD music, an OGG encoder. Setup offers to install one (vorbis-tools via Homebrew on macOS, FFmpeg via winget on Windows); without one the game runs fine, just without music.
 
-## Setup
+## Quick setup
+
+1. Download this repo ([Code → Download ZIP](https://github.com/reefbarman/beasts-and-bumpkins-patch/archive/refs/heads/main.zip)) and unzip it, or clone it.
+2. Double-click **`Install.command`** (macOS) or **`Install.bat`** (Windows).
+3. Pick your disc image (or `BEASTS.EXE` on the CD or in a copied folder) in the file picker, choose a resolution, and it does the rest. An inserted or mounted game CD is found automatically.
+4. From then on, double-click **`Play.command`** or **`Play.bat`** to play.
+
+Because these scripts aren't signed, the first double-click may be blocked. On macOS, right-click `Install.command` → Open → Open (on macOS 15 and later, if there's no Open button, allow it under System Settings → Privacy & Security → Open Anyway). On Windows, if SmartScreen appears, click More info → Run anyway.
+
+## Setup from the command line
 
 ```sh
-# 1. Extract the disc, patch the exe, download wrappers, encode music
-python3 scripts/bb.py prepare --cue "/path/to/BEASTS&BUMPKINS.cue"
+# 1. Read the disc, patch the exe, download wrappers, encode music.
+#    --disc takes a .cue/.bin/.iso/.img, the mounted CD, a folder with its files, or BEASTS.EXE
+python3 scripts/bb.py prepare --disc "/path/to/BEASTS&BUMPKINS.cue"
 
 # 2. Install
 python3 scripts/bb.py install
@@ -100,7 +109,7 @@ ogg-winmm v2025.01.16 forwards `open cdaudio` to the real winmm with a NULL para
 
 | Script               | Purpose                                                                                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scripts/bb.py`      | Main CLI: `prepare`, `install`, `run`, `stop`                                                                                                                                              |
+| `scripts/bb.py`      | Main CLI: `setup` (interactive), `prepare`, `install`, `run`, `stop`                                                                                                                       |
 | `scripts/bbpatch.py` | Verified patches: `nocd` (default), `console`, `qol` (WASD scrolling, F5 quicksave, F9 quickload, press any key or click twice to skip a movie; always installed by `bb.py`), `screenmode` |
 | `patches/*.asm`      | Our own x86 code patches (nasm source plus the assembled `.bin`)                                                                                                                           |
 | `scripts/bincue.py`  | Split BIN/CUE into ISO data track and WAV audio tracks                                                                                                                                     |

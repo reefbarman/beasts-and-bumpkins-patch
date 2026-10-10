@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Beasts & Bumpkins restoration CLI for macOS (CrossOver) and Windows.
 
-You supply your own copy of the game disc (BIN/CUE). Nothing from the game is
-stored in this repository; everything generated lives in .local/.
+You supply your own copy of the game disc. Nothing from the game is stored in
+this repository; everything generated lives in .local/.
 
-  python3 scripts/bb.py prepare --cue "path/to/BEASTS&BUMPKINS.cue"
+  python3 scripts/bb.py setup              # interactive: pick the disc, prepare, install, play
+  python3 scripts/bb.py prepare --disc "path/to/BEASTS&BUMPKINS.cue"
   python3 scripts/bb.py install            # CrossOver bottle (macOS) or C:\\Games\\Beasts (Windows)
   python3 scripts/bb.py run [--fullscreen]
 
-prepare: splits the disc image, extracts game files, builds the verified
-         no-CD BEASTS.EXE, downloads the pinned cnc-ddraw (graphics) and
-         ogg-winmm (CD music) wrappers and encodes the music tracks.
+setup:   asks for the disc (file picker) and a resolution, then runs prepare,
+         install and optionally run. Install.command / Install.bat call this.
+prepare: reads the disc (BIN/CUE, ISO, the mounted CD or a folder with its
+         files), builds the verified no-CD BEASTS.EXE, downloads the pinned
+         cnc-ddraw (graphics) and ogg-winmm (CD music) wrappers and encodes
+         the music tracks (BIN/CUE only: the other sources have no CD audio).
 install: builds BEASTS.EXE (no-CD, plus --console [--console-key KEY] for
          developer mode), copies everything into place and writes the registry
          values the game expects. Re-running it keeps existing saves.
@@ -83,6 +87,13 @@ WRAPPER_PATCHES = {
     ),
 }
 
+# Files every copy of the disc has; used to recognise a disc folder or image.
+REQUIRED_FILES = ("BEASTS.EXE", "MISC.BOX", "MISSIONS.BOX", "MISTEXT0.BOX", "SPEECH0.BOX", "VIDEO.BOX",
+                  "QMIXER95.DLL")
+SOURCE_STATE = DISC / "source.json"
+RESOLUTIONS = ["640x480", "1280x720", "1600x900", "1920x1080"]
+DEFAULT_RESOLUTION = "1280x720"
+
 # Disc files not needed by the installed game.
 SKIP_FILES = {"AUTORUN.EXE", "AUTORUN.INF", "SETUP.EXE", "BBUNINST.EXE", "BEASTS.EXE"}
 SKIP_PREFIX = "DSETUP"
@@ -140,15 +151,34 @@ def fetch_wrapper(name: str) -> Path:
     return dest
 
 
-def find_encoder() -> list[str] | None:
-    """Return an OGG Vorbis encoder command prefix, or None."""
-    if shutil.which("oggenc"):
-        return ["oggenc", "-Q", "-q", "6", "-o"]
-    if shutil.which("ffmpeg"):
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+def find_tool(name: str) -> str | None:
+    """shutil.which, plus where winget puts tools on Windows (not on PATH until a new console)."""
+    found = shutil.which(name)
+    if found or not is_windows():
+        return found
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates = [local / "Microsoft/WinGet/Links" / f"{name}.exe",
+                  *local.glob(f"Microsoft/WinGet/Packages/*/*/bin/{name}.exe")]
+    return next((str(p) for p in candidates if p.exists()), None)
+
+
+def find_encoder() -> tuple[str, str] | None:
+    """Return (kind, executable) of an OGG Vorbis encoder, or None."""
+    if oggenc := find_tool("oggenc"):
+        return "oggenc", oggenc
+    if ffmpeg := find_tool("ffmpeg"):
+        out = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
         if "libvorbis" in out:
-            return ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-c:a", "libvorbis", "-q:a", "6"]
+            return "ffmpeg", ffmpeg
     return None
+
+
+def have_music() -> bool:
+    return all((MUSIC / f"Track{n}.ogg").exists() for n in TRACKS)
+
+
+def have_wavs() -> bool:
+    return all((DISC / f"track{n}.wav").exists() for n in TRACKS)
 
 
 def encode_music() -> bool:
@@ -160,32 +190,134 @@ def encode_music() -> bool:
     if enc is None:
         print("warning: no OGG encoder found, skipping CD music.\n"
               "  macOS: brew install vorbis-tools\n"
-              "  Windows: install oggenc (vorbis-tools) or an ffmpeg build with libvorbis, then rerun prepare")
+              "  Windows: winget install Gyan.FFmpeg (or oggenc from vorbis-tools), then rerun prepare")
         return False
+    kind, exe = enc
     for n in todo:
         wav, ogg = DISC / f"track{n}.wav", MUSIC / f"Track{n}.ogg"
-        if enc[0] == "oggenc":
-            cmd = enc + [str(ogg), str(wav)]
+        if kind == "oggenc":
+            cmd = [exe, "-Q", "-q", "6", "-o", str(ogg), str(wav)]
         else:
-            cmd = enc[:5] + ["-i", str(wav)] + enc[5:] + [str(ogg)]
+            cmd = [exe, "-nostdin", "-loglevel", "error", "-y", "-i", str(wav), "-c:a", "libvorbis", "-q:a", "6",
+                   str(ogg)]
         subprocess.run(cmd, check=True)
         print(f"encoded {ogg.name}")
     return True
 
 
+def find_cue_for(image: Path) -> Path | None:
+    """A .cue next to image that refers to it, if any."""
+    for cue in sorted(image.parent.iterdir()):
+        if cue.suffix.lower() != ".cue":
+            continue
+        try:
+            bin_path, _ = bincue.parse_cue(cue)
+        except (SystemExit, OSError, IndexError):
+            continue
+        if bin_path.name.lower() == image.name.lower():
+            return cue
+    return None
+
+
+def resolve_source(path: Path) -> tuple[str, Path]:
+    """Classify a disc source as ("cue", file), ("image", file) or ("folder", dir)."""
+    if not path.exists():
+        raise SystemExit(f"{path} not found")
+    if path.is_dir():
+        return "folder", path
+    if path.name.upper() == "BEASTS.EXE":
+        return "folder", path.parent
+    ext = path.suffix.lower()
+    if ext == ".cue":
+        return "cue", path
+    if ext in (".bin", ".img"):
+        cue = find_cue_for(path)
+        return ("cue", cue) if cue else ("image", path)
+    if ext == ".iso":
+        return "image", path
+    raise SystemExit(f"{path.name}: expected a .cue, .bin, .iso or .img disc image, the disc (or a folder "
+                     "with its files), or BEASTS.EXE from it")
+
+
+def data_track(image: Path, scratch: Path) -> Path:
+    """A 2048-byte-sector ISO of image's data track: image itself, or a conversion
+    of a raw 2352-byte-sector image written to scratch."""
+    with image.open("rb") as f:
+        f.seek(16 * bincue.USER_DATA)
+        if f.read(6)[1:6] == b"CD001":
+            return image
+        for offset in bincue.DATA_OFFSET.values():
+            f.seek(16 * bincue.RAW_SECTOR + offset)
+            if f.read(6)[1:6] == b"CD001":
+                break
+        else:
+            raise SystemExit(f"{image.name}: not a CD-ROM data image (no ISO 9660 volume found)")
+        print(f"converting raw sectors in {image.name}")
+        f.seek(0)
+        scratch.parent.mkdir(parents=True, exist_ok=True)
+        with scratch.open("wb") as out:
+            while sector := f.read(bincue.RAW_SECTOR):
+                out.write(sector[offset:offset + bincue.USER_DATA])
+    return scratch
+
+
+def copy_disc_folder(src: Path, out: Path) -> int:
+    files = [p for p in src.iterdir() if p.is_file()]
+    missing = [n for n in REQUIRED_FILES if n not in {p.name.upper() for p in files}]
+    if missing:
+        raise SystemExit(f"{src} doesn't look like the Beasts & Bumpkins CD (missing {', '.join(missing)})")
+    out.mkdir(parents=True, exist_ok=True)
+    for p in files:
+        shutil.copyfile(p, out / p.name.upper())
+    return len(files)
+
+
+def check_game_files(src: Path) -> None:
+    present = {p.name.upper() for p in FILES.iterdir()} if FILES.exists() else set()
+    missing = [n for n in REQUIRED_FILES if n not in present]
+    if missing:
+        shutil.rmtree(FILES, ignore_errors=True)
+        raise SystemExit(f"{src} doesn't look like the Beasts & Bumpkins CD (missing {', '.join(missing)})")
+    if bbpatch.identify((FILES / "BEASTS.EXE").read_bytes()) != "original":
+        raise SystemExit("this BEASTS.EXE isn't the English EU CD release, the only version supported so far.\n"
+                         "Please open an issue with the output of: python3 scripts/peinfo.py "
+                         f"\"{FILES / 'BEASTS.EXE'}\"")
+
+
 def cmd_prepare(args) -> int:
-    cue = Path(args.cue)
-    if not cue.exists():
-        raise SystemExit(f"{cue} not found")
+    given = args.disc or args.cue
+    if not given:
+        raise SystemExit("give the disc with --disc: a .cue/.bin/.iso image, the mounted CD or a folder with its files")
+    kind, path = resolve_source(Path(given).expanduser())
+    key = {"kind": kind, "path": str(path.resolve())}
+    previous = json.loads(SOURCE_STATE.read_text()) if SOURCE_STATE.exists() else None
+    # Earlier versions kept no record of the source; reuse their extracted files.
+    changed = previous is not None and previous != key
     iso = DISC / "track01.iso"
-    if not iso.exists() or not all((DISC / f"track{n}.wav").exists() for n in TRACKS):
-        bincue.split(cue, DISC)
-    if not (FILES / "BEASTS.EXE").exists():
-        print(f"extracted {iso9660.extract(iso, FILES, ('REDIST',))} files")
+    if kind == "cue" and (changed or not iso.exists() or not have_wavs()):
+        bincue.split(path, DISC)
+    if changed or not (FILES / "BEASTS.EXE").exists():
+        shutil.rmtree(FILES, ignore_errors=True)
+        if kind == "cue":
+            count = iso9660.extract(iso, FILES, ("REDIST",))
+        elif kind == "image":
+            count = iso9660.extract(data_track(path, iso), FILES, ("REDIST",))
+        else:
+            count = copy_disc_folder(path, FILES)
+        print(f"copied {count} game files from {path}")
+    check_game_files(path)
+    DISC.mkdir(parents=True, exist_ok=True)
+    SOURCE_STATE.write_text(json.dumps(key, indent=2))
     bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, ["nocd"], None)
     for name in WRAPPERS:
         print(f"{name}: {fetch_wrapper(name)}")
-    encode_music()
+    if have_music():
+        pass
+    elif kind == "cue" and have_wavs():
+        encode_music()
+    else:
+        print("note: no CD music. A mounted disc, ISO or folder only has the data track; the soundtrack is\n"
+              "  in the CD's audio tracks, which a BIN/CUE image includes. The game plays fine without it.")
     print("prepare complete; next: python3 scripts/bb.py install")
     return 0
 
@@ -414,11 +546,148 @@ def cmd_run(args) -> int:
         return subprocess.run(cmd, cwd=game_dir, stdout=out, stderr=subprocess.STDOUT, env=env).returncode
 
 
+# ---------------------------------------------------------------- setup
+
+PICK_PROMPT = ("Choose your Beasts & Bumpkins disc image (.cue, .bin or .iso), or BEASTS.EXE on the CD "
+               "or in a folder copied from it")
+
+
+def ask(prompt: str, default: bool = True) -> bool:
+    if not sys.stdin.isatty():
+        return default
+    answer = input(f"{prompt} [{'Y/n' if default else 'y/N'}] ").strip().lower()
+    return default if not answer else answer.startswith("y")
+
+
+def find_mounted_disc() -> Path | None:
+    """The root of an inserted or mounted game CD, if there is one."""
+    if is_windows():
+        import ctypes
+
+        ctypes.windll.kernel32.SetErrorMode(1)  # no "insert a disk" prompts for empty drives
+        roots = [Path(f"{c}:\\") for c in "DEFGHIJKLMNOPQRSTUVWXYZ"]
+    elif platform.system() == "Darwin" and Path("/Volumes").exists():
+        roots = list(Path("/Volumes").iterdir())
+    else:
+        return None
+    for root in roots:
+        try:
+            names = {p.name.upper() for p in root.iterdir()}
+        except OSError:
+            continue
+        if all(n in names for n in REQUIRED_FILES):
+            return root
+    return None
+
+
+def pick_disc() -> Path | None:
+    """Ask for the disc with the system file picker, falling back to typing a path."""
+    if platform.system() == "Darwin":
+        r = subprocess.run(["osascript", "-e", f'POSIX path of (choose file with prompt "{PICK_PROMPT}")'],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return Path(r.stdout.strip())
+        if "-128" in r.stderr:  # cancelled
+            return None
+    elif is_windows():
+        ps = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$o = New-Object System.Windows.Forms.Form -Property @{TopMost=$true};"
+            "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+            f"$d.Title = '{PICK_PROMPT}';"
+            "$d.Filter = 'Disc image or BEASTS.EXE|*.cue;*.bin;*.iso;*.img;BEASTS.EXE|All files|*.*';"
+            "if ($d.ShowDialog($o) -eq 'OK') { $d.FileName }"
+        )
+        r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, text=True)
+        if r.returncode == 0:
+            return Path(r.stdout.strip()) if r.stdout.strip() else None
+    if not sys.stdin.isatty():
+        return None
+    typed = input("Type or drag in the disc image, CD or folder, then press Enter: ").strip().strip("'\"")
+    if not typed:
+        return None
+    if not is_windows() and not Path(typed).exists():
+        typed = re.sub(r"\\(.)", r"\1", typed)  # Terminal backslash-escapes dragged paths
+    return Path(typed)
+
+
+def choose_resolution() -> str:
+    print("\nMission resolution. Menus, briefings and videos stay 640x480 and are scaled up.\n"
+          "You can change it later from the main menu's OPTIONS page.")
+    for i, res in enumerate(RESOLUTIONS, 1):
+        note = "  (original)" if res == "640x480" else "  (recommended)" if res == DEFAULT_RESOLUTION else ""
+        print(f"  {i}. {res}{note}")
+    if not sys.stdin.isatty():
+        return DEFAULT_RESOLUTION
+    while True:
+        answer = input(f"Choose 1-{len(RESOLUTIONS)} (Enter for {DEFAULT_RESOLUTION}): ").strip().lower()
+        if not answer:
+            return DEFAULT_RESOLUTION
+        if answer.isdigit() and 1 <= int(answer) <= len(RESOLUTIONS):
+            return RESOLUTIONS[int(answer) - 1]
+        if re.fullmatch(r"\d+x\d+", answer):
+            return answer
+
+
+def offer_encoder() -> None:
+    """Offer to install an OGG encoder so the CD music can be converted."""
+    if have_music() or find_encoder():
+        return
+    if platform.system() == "Darwin" and shutil.which("brew"):
+        if ask("The CD music needs an OGG encoder. Install vorbis-tools with Homebrew?"):
+            subprocess.run(["brew", "install", "vorbis-tools"])
+    elif is_windows() and shutil.which("winget"):
+        if ask("The CD music needs an OGG encoder. Install FFmpeg with winget?"):
+            subprocess.run(["winget", "install", "-e", "--id", "Gyan.FFmpeg",
+                            "--accept-source-agreements", "--accept-package-agreements"])
+
+
+def cmd_setup(args) -> int:
+    print("Beasts & Bumpkins Patch setup\n")
+    if not is_windows():
+        if platform.system() != "Darwin":
+            raise SystemExit("setup supports Windows and macOS (with CrossOver)")
+        if not (CROSSOVER_BIN / "wine").exists():
+            raise SystemExit("CrossOver is needed on macOS. Install it from https://www.codeweavers.com/crossover "
+                             "into /Applications, then run setup again.")
+    disc = Path(args.disc).expanduser() if args.disc else None
+    reuse = False
+    if disc is None and (FILES / "BEASTS.EXE").exists():
+        where = f" from {json.loads(SOURCE_STATE.read_text())['path']}" if SOURCE_STATE.exists() else ""
+        reuse = ask(f"Use the game files copied earlier{where}?")
+    if disc is None and not reuse:
+        found = find_mounted_disc()
+        if found and ask(f"Found the game CD at {found}. Use it?"):
+            disc = found
+    if disc is None and not reuse:
+        print("Opening a file picker. " + PICK_PROMPT + ".")
+        disc = pick_disc()
+        if disc is None:
+            raise SystemExit("no disc chosen; run setup again when you have it")
+    resolution = args.resolution or choose_resolution()
+    if not reuse:
+        if resolve_source(disc)[0] == "cue":
+            offer_encoder()
+        cmd_prepare(argparse.Namespace(disc=str(disc), cue=None))
+    cmd_install(argparse.Namespace(bottle=None, target=None, no_music=False, console=False, console_key="F11",
+                                   resolution=resolution))
+    print("\nAll set. Next time, start the game with Play.command (macOS) or Play.bat (Windows).")
+    if ask("Start the game now?"):
+        return cmd_run(argparse.Namespace(window=False, fullscreen=False))
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
+    ps = sub.add_parser("setup", help="interactive setup: choose the disc, prepare, install and play")
+    ps.add_argument("--disc", help="skip the file picker and use this disc source")
+    ps.add_argument("--resolution", metavar="WxH", help=f"skip the question (e.g. {DEFAULT_RESOLUTION})")
     pp = sub.add_parser("prepare", help="extract, patch and download wrappers")
-    pp.add_argument("--cue", required=True, help="path to BEASTS&BUMPKINS.cue (with its .bin alongside)")
+    src = pp.add_mutually_exclusive_group(required=True)
+    src.add_argument("--disc", help="the disc: a .cue/.bin/.iso/.img image, the mounted CD, a folder with "
+                                    "its files, or BEASTS.EXE from either (CD music needs BIN/CUE)")
+    src.add_argument("--cue", help=argparse.SUPPRESS)  # older name for --disc
     pi = sub.add_parser("install", help="install into CrossOver bottle (macOS) or folder (Windows)")
     pi.add_argument("--bottle", help=f"CrossOver bottle name (default {DEFAULT_BOTTLE})")
     pi.add_argument("--target", help=f"Windows install folder (default {DEFAULT_WIN_DIR})")
@@ -437,7 +706,9 @@ def main() -> int:
                       help="start in a window (default: whatever was last chosen in game)")
     mode.add_argument("--fullscreen", action="store_true", help="start in borderless fullscreen")
     args = p.parse_args()
-    return {"prepare": cmd_prepare, "install": cmd_install, "run": cmd_run, "stop": cmd_stop}[args.cmd](args)
+    commands = {"setup": cmd_setup, "prepare": cmd_prepare, "install": cmd_install, "run": cmd_run,
+                "stop": cmd_stop}
+    return commands[args.cmd](args)
 
 
 if __name__ == "__main__":
