@@ -318,7 +318,7 @@ def cmd_install(args) -> int:
         fetch_wrapper(name)
     if not (FILES / "BEASTS.EXE").exists():
         raise SystemExit("run prepare first")
-    patches = ["nocd"]
+    patches = ["nocd", "qol"]
     if args.console:
         patches.append("console")
         if args.console_key != "F11":

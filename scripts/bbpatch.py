@@ -7,9 +7,11 @@ release below. The input is never modified, unknown inputs are refused and
 every edit checks its original bytes first. Output is always built from the
 original, so applying is idempotent.
 
-Code patches (screenmode) are our own assembly in patches/*.asm, assembled
-with nasm into patches/*.bin (committed, so applying needs no nasm), appended
-as a new PE section, and reached through call hooks at known sites.
+Code patches (qol, screenmode) are our own assembly in patches/*.asm,
+assembled with nasm into patches/*.bin (committed, so applying needs no nasm),
+appended as new PE sections, and reached through call hooks at known sites.
+Each blob is assembled for a fixed address: qol at 0x71F000, screenmode right
+after it at 0x720000, so screenmode needs qol.
 
 Usage:
   bbpatch.py inspect <BEASTS.EXE>
@@ -17,9 +19,10 @@ Usage:
   bbpatch.py assemble          (rebuild patches/*.bin with nasm)
 
 Default patches: nocd. Optional: console, console-f12 / console-z (developer
-mode on F12 or Z instead of F11), screenmode (640x480 front end, registry
-size in missions), resolution (bb-patch's EXE default edits; superseded by
-screenmode plus the DisplayWidth/DisplayHeight registry values).
+mode on F12 or Z instead of F11), qol (WASD scrolling, F5 quicksave, F9
+quickload), screenmode (640x480 front end, registry size in missions; needs
+qol), resolution (bb-patch's EXE default edits; superseded by screenmode plus
+the DisplayWidth/DisplayHeight registry values).
 """
 
 from __future__ import annotations
@@ -122,7 +125,16 @@ class Section:
 
 # Section characteristics: code | initialised data | execute | read | write.
 SECTION_FLAGS = 0xE0000060
-SCREENMODE_VA = 0x71F000
+QOL_VA = 0x71F000
+SCREENMODE_VA = 0x720000
+
+# Hook sites for patches/qol.asm, same format as SCREENMODE_HOOKS below.
+QOL_HOOKS = [
+    (0x403F5F, "8d43db3d98000000", 0),       # key down: arrow-key table lookup
+    (0x405493, "8d43f083f818", 1),           # key up: arrow-key table lookup
+    (0x40B287, "a16c424800", 2),             # main loop: mov eax, g_screen
+]
+QOL_JUMPS = {0x403F5F, 0x405493}
 
 # Hook sites for patches/screenmode.asm: (VA, original bytes, header entry
 # index or None to NOP). A hooked site becomes "call entry" padded with NOPs,
@@ -163,10 +175,8 @@ SCREENMODE_HOOKS = [
     (0x414D4F, "3df4010000", 23),            # message-log tab click zone right
     (0x4150FA, "3df4010000", 23),            # message-log tab hover zone right
     (0x41A714, "e877560100", 24),            # bottom panel stone filler blit
-    (0x403F5F, "8d43db3d98000000", 25),      # key down: arrow-key table lookup
-    (0x405493, "8d43f083f818", 26),          # key up: arrow-key table lookup
 ]
-SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0, 0x403F5F, 0x405493}
+SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0}
 
 
 def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, list[int]]:
@@ -183,19 +193,29 @@ def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, li
     return blob, targets
 
 
-def patch_screenmode() -> tuple[list[Edit], Section]:
-    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 27)
+def patch_hooked_blob(name: str, section: bytes, va: int, magic: bytes,
+                      hooks: list, jumps: set[int]) -> tuple[list[Edit], Section]:
+    entries = 1 + max(e for _, _, e in hooks if e is not None)
+    blob, targets = load_blob(name, va, magic, entries)
     edits = []
-    for va, original_hex, entry in SCREENMODE_HOOKS:
+    for site, original_hex, entry in hooks:
         original = bytes.fromhex(original_hex)
         if entry is None:
             replacement = b"\x90" * len(original)
         else:
-            rel = (targets[entry] - (va + 5)) & 0xFFFFFFFF
-            opcode = b"\xe9" if va in SCREENMODE_JUMPS else b"\xe8"
+            rel = (targets[entry] - (site + 5)) & 0xFFFFFFFF
+            opcode = b"\xe9" if site in jumps else b"\xe8"
             replacement = opcode + u32(rel) + b"\x90" * (len(original) - 5)
-        edits.append(Edit(text_offset(va), original, replacement))
-    return edits, Section(b".bbsm", SCREENMODE_VA, blob)
+        edits.append(Edit(text_offset(site), original, replacement))
+    return edits, Section(section, va, blob)
+
+
+def patch_qol() -> tuple[list[Edit], Section]:
+    return patch_hooked_blob("qol", b".bbqol", QOL_VA, b"BBQL", QOL_HOOKS, QOL_JUMPS)
+
+
+def patch_screenmode() -> tuple[list[Edit], Section]:
+    return patch_hooked_blob("screenmode", b".bbsm", SCREENMODE_VA, b"BBSM", SCREENMODE_HOOKS, SCREENMODE_JUMPS)
 
 
 def pe_layout(data: bytes) -> tuple[int, int, int]:
@@ -275,9 +295,10 @@ def cmd_inspect(path: Path) -> int:
     checks += [(f"console-{k.lower()}", patch_console_key(k)) for k in CONSOLE_KEYS]
     for name, edits in checks:
         print(f"  {name}: {state_of(data, edits)}")
-    hooks = [Edit(text_offset(va), bytes.fromhex(o), b"") for va, o, _ in SCREENMODE_HOOKS]
-    hooked = "original" if state_of(data, hooks) == "original" else "hooked"
-    print(f"  screenmode: {hooked}, section {'present' if b'.bbsm' in section_names(data) else 'absent'}")
+    for name, table, section in (("qol", QOL_HOOKS, b".bbqol"), ("screenmode", SCREENMODE_HOOKS, b".bbsm")):
+        hooks = [Edit(text_offset(va), bytes.fromhex(o), b"") for va, o, _ in table]
+        hooked = "original" if state_of(data, hooks) == "original" else "hooked"
+        print(f"  {name}: {hooked}, section {'present' if section in section_names(data) else 'absent'}")
     w, h = struct.unpack_from("<II", data, 0x82A44)
     print(f"  resolution (EXE default): {w}x{h}")
     return 0
@@ -304,8 +325,10 @@ def cmd_apply(src: Path, dest: Path, names: list[str], resolution: str | None) -
                 raise SystemExit("--resolution WxH is required for the resolution patch")
             w, h = (int(x) for x in resolution.lower().split("x"))
             edits += patch_resolution(w, h)
-        elif name == "screenmode":
-            hook_edits, section = patch_screenmode()
+        elif name in ("qol", "screenmode"):
+            if name == "screenmode" and "qol" not in names:
+                raise SystemExit("screenmode needs the qol patch too (its section follows qol's)")
+            hook_edits, section = patch_qol() if name == "qol" else patch_screenmode()
             edits += hook_edits
             sections.append(section)
         else:
@@ -323,7 +346,7 @@ def cmd_apply(src: Path, dest: Path, names: list[str], resolution: str | None) -
             raise SystemExit(f"edit at {e.offset:#x} changes length")
     for e in edits:
         data[e.offset : e.offset + len(e.replacement)] = e.replacement
-    for sec in sections:
+    for sec in sorted(sections, key=lambda s: s.va):
         append_section(data, sec)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +373,8 @@ def main() -> int:
     p_apply.add_argument("exe", type=Path)
     p_apply.add_argument("output", type=Path)
     p_apply.add_argument("--patch", action="append",
-                         choices=["nocd", "console", "console-f12", "console-z", "screenmode", "resolution"])
+                         choices=["nocd", "console", "console-f12", "console-z", "qol", "screenmode",
+                                  "resolution"])
     p_apply.add_argument("--resolution")
     sub.add_parser("assemble")
     args = parser.parse_args()

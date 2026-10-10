@@ -79,14 +79,14 @@ The game plays music with MCI `cdaudio` commands from the disc's 7 audio tracks,
 
 ## Scripts
 
-| Script               | Purpose                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `scripts/bb.py`      | Main CLI: `prepare`, `install`, `run`                            |
-| `scripts/bbpatch.py` | Verified patches: `nocd` (default), `console`, `screenmode`      |
-| `patches/*.asm`      | Our own x86 code patches (nasm source plus the assembled `.bin`) |
-| `scripts/bincue.py`  | Split BIN/CUE into ISO data track and WAV audio tracks           |
-| `scripts/iso9660.py` | Extract files from the ISO data track (pure Python)              |
-| `scripts/peinfo.py`  | Print hashes, PE header, sections and imports                    |
+| Script               | Purpose                                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/bb.py`      | Main CLI: `prepare`, `install`, `run`                                                                                                        |
+| `scripts/bbpatch.py` | Verified patches: `nocd` (default), `console`, `qol` (WASD scrolling, F5 quicksave, F9 quickload; always installed by `bb.py`), `screenmode` |
+| `patches/*.asm`      | Our own x86 code patches (nasm source plus the assembled `.bin`)                                                                             |
+| `scripts/bincue.py`  | Split BIN/CUE into ISO data track and WAV audio tracks                                                                                       |
+| `scripts/iso9660.py` | Extract files from the ISO data track (pure Python)                                                                                          |
+| `scripts/peinfo.py`  | Print hashes, PE header, sections and imports                                                                                                |
 
 ## Rollback
 
