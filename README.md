@@ -13,7 +13,7 @@ See `plans/beasts-and-bumpkins-restoration.md` for the roadmap and `research/` f
   <img src="media/screens/ingame.png" alt="A mission running at 1920x1080 with the HUD stretched to the full width" width="100%">
 </p>
 <p align="center">
-  <img src="media/screens/menu.png" alt="The 640x480 main menu scaled up in a 1920x1080 window, with the new OPTIONS entry" width="100%">
+  <img src="media/screens/menu-window.png" alt="The 640x480 main menu scaled up in a 1920x1080 window, with the new OPTIONS entry" width="100%">
 </p>
 <p align="center"><em>A mission at 1920x1080 (top), and the 640x480 main menu scaled up in the same 1920x1080 window with the new OPTIONS entry (bottom)</em></p>
 
