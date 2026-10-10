@@ -78,6 +78,7 @@ header:
     dd push_tab_x2              ; +0x5C
     dd cmp_tab_lo               ; +0x60
     dd cmp_tab_hi               ; +0x64
+    dd on_panel_fill            ; +0x68
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -454,6 +455,39 @@ cmp_half_tail:                  ; [esp] = saved edx, edx = 640-layout x
     cmp eax, edx
     pop edx                     ; pop and ret keep the flags
     ret
+
+; Replaces "call SPRITE_BLIT" for the stone filler after the last icon in
+; the bottom panel (0x41A714, ecx = sprite 0x4EEBC4). The icons already run
+; to g_width, but the filler is one image drawn once; repeat it until the
+; screen edge. At 640 wide the first draw already reaches the edge.
+on_panel_fill:
+    push ebp
+    push esi
+    push edi
+    push ebx
+    mov esi, ecx
+    mov ebp, [esp+20]           ; x
+    mov ebx, [esp+24]           ; y
+    mov edi, [esp+28]           ; frame
+.again:
+    push dword [esp+32]         ; flag
+    push edi
+    push ebx
+    push ebp
+    mov ecx, esi
+    call SPRITE_BLIT
+    mov eax, [esi+0x44]         ; image width
+    cmp eax, 16
+    jl .done
+    add ebp, eax
+    cmp ebp, [G_WIDTH]
+    jl .again
+.done:
+    pop ebx
+    pop edi
+    pop esi
+    pop ebp
+    ret 16
 
 ; ---------------------------------------------------------------- helpers
 
