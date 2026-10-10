@@ -143,6 +143,8 @@ SCREENMODE_HOOKS = [
     (0x42A32A, "c741047c010000", None),      # portrait y = 380
     (0x41FFC0, "56578bf18b4c240c", 7),       # Menu_SetActive(flag) entry
     (0x42B260, "56a13c444800", 8),           # SetViewMode(mode) entry
+    (0x40BBA1, "a0bc474800", 9),             # mission frame: full repaint above 640x480
+    (0x40BEF2, "b9a0195d00", 10),            # before toolbar: clear strip right of it
 ]
 SCREENMODE_JUMPS = {0x41FFC0, 0x42B260}
 
@@ -162,7 +164,7 @@ def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, li
 
 
 def patch_screenmode() -> tuple[list[Edit], Section]:
-    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 9)
+    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 11)
     edits = []
     for va, original_hex, entry in SCREENMODE_HOOKS:
         original = bytes.fromhex(original_hex)

@@ -23,6 +23,11 @@ CREATE_PRIMARY  equ 0x42EE50    ; Display_CreatePrimary()
 CLEAR_SCREEN    equ 0x42F200    ; Display_ClearScreen()
 SET_CLIP        equ 0x42F410    ; Display_SetClip(left, top, right, bottom)
 REQUEST_REDRAW  equ 0x403190    ; full map repaint for every buffer in the flip chain
+REDRAW_FRAMES   equ 0x4847BC    ; byte: frames of full repaint left (0x40BBA0)
+TOOLBAR_H       equ 0x29        ; top toolbar height; the map viewport starts below it
+D_BACK          equ 0x38        ; IDirectDrawSurface* back buffer
+DDS_BLT         equ 0x14        ; IDirectDrawSurface vtable
+DDBLT_COLORFILL_WAIT equ 0x01000400
 
 
 D_DDRAW         equ 0x30        ; IDirectDraw*
@@ -50,6 +55,8 @@ header:
     dd on_portrait_init         ; +0x20
     dd on_menu_open_close       ; +0x24
     dd on_set_view_mode         ; +0x28
+    dd on_mission_frame         ; +0x2C
+    dd on_before_toolbar        ; +0x30
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -192,6 +199,60 @@ on_set_view_mode:
     push esi
     mov eax, [VIEW_MODE]
     jmp 0x42B266
+
+; Replaces "mov al, [REDRAW_FRAMES]" at the top of the mission frame
+; (0x40BBA1). The game repaints only dirty rects, and several HUD overlays
+; (thought bubble, tooltips) only mark where they are now, not where they
+; were, so above 640x480 they smear. Repaint everything every frame instead,
+; as the game already does while scrolling.
+on_mission_frame:
+    cmp dword [G_WIDTH], FRONT_W
+    jle .orig
+    cmp byte [REDRAW_FRAMES], 0
+    jne .orig
+    mov byte [REDRAW_FRAMES], 1
+.orig:
+    mov al, [REDRAW_FRAMES]
+    ret
+
+; Replaces "mov ecx, 0x5D19A0" before the toolbar draw (0x40BEF2). The
+; toolbar image is 640 wide and the map starts below it, so nothing repaints
+; the strip to its right; clear it to black so cursor and tooltips don't smear.
+on_before_toolbar:
+    pushad
+    mov eax, [G_WIDTH]
+    cmp eax, FRONT_W
+    jle .skip
+    sub esp, 16 + 100           ; RECT, then DDBLTFX
+    mov ebx, esp                ; RECT
+    lea edx, [esp+16]           ; DDBLTFX
+    mov edi, edx
+    mov ecx, 25
+    xor eax, eax
+    rep stosd
+    mov dword [edx], 100        ; dwSize; dwFillColor (+0x50) stays 0
+    mov dword [ebx], FRONT_W
+    mov dword [ebx+4], 0
+    mov eax, [G_WIDTH]
+    mov [ebx+8], eax
+    mov dword [ebx+12], TOOLBAR_H
+    mov eax, [DISPLAY+D_BACK]
+    test eax, eax
+    jz .free
+    push edx
+    push DDBLT_COLORFILL_WAIT
+    push 0
+    push 0
+    push ebx
+    push eax
+    mov ecx, [eax]
+    call [ecx+DDS_BLT]
+.free:
+    add esp, 16 + 100
+.skip:
+    popad
+    mov ecx, 0x5D19A0
+    ret
 
 ; ---------------------------------------------------------------- helpers
 

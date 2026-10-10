@@ -126,6 +126,15 @@ Tried and reverted: filling each repaint rect black in the loop at `0x41912D` (l
 
 Observed trail locations at 1280x720: under the thought bubble below y≈600 around x 590-660; tooltip text and cursor in the top strip (y < 41) right of x=640, above the map viewport and beyond the 640-wide toolbar. Both are outside anything the 640x480 layout ever drew. Next: find what restores HUD overlays and the top strip, probably a 640-wide background panel blit, and decompile the bubble owner among the HUD objects above.
 
+### Trails and post-load bars fixed (screenmode v3)
+
+Two more hooks, both inert at 640x480:
+
+- `on_mission_frame` replaces `mov al, [0x4847BC]` at `0x40BBA1`. Above 640 wide it keeps the full-repaint counter at 1, so the mission frame invalidates the whole screen (`0x418A10`) every frame, as the game already does while scrolling. This removes the smear left by overlays that only mark their new position.
+- `on_before_toolbar` replaces `mov ecx, 0x5D19A0` at `0x40BEF2`. It colour-fills RECT {640, 0, g_width, 0x29} black on the back buffer (`IDirectDrawSurface::Blt`, `DDBLT_COLORFILL | DDBLT_WAIT`) before the 640-wide toolbar is drawn, since the map viewport starts below the toolbar and nothing else repaints that strip.
+
+Test at 1280x720: cursor, tooltip and thought-bubble trails are gone, no black bars after loading a save, no visible slowdown or flicker.
+
 ## Open questions to settle while implementing
 
 - Which state the mission briefing runs in. If it's state 2, it needs its own 640x480 scope around the briefing call.
