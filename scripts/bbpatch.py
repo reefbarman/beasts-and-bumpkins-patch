@@ -20,7 +20,7 @@ Usage:
 
 Default patches: nocd. Optional: console, console-f12 / console-z (developer
 mode on F12 or Z instead of F11), qol (WASD scrolling, F5 quicksave, F9
-quickload), screenmode (640x480 front end, registry size in missions, main
+quickload, skip videos by pressing any key or button twice), screenmode (640x480 front end, registry size in missions, main
 menu OPTIONS page to change it; needs qol), resolution (bb-patch's EXE
 default edits; superseded by screenmode plus the DisplayWidth/DisplayHeight
 registry values).
@@ -134,8 +134,10 @@ QOL_HOOKS = [
     (0x403F5F, "8d43db3d98000000", 0),       # key down: arrow-key table lookup
     (0x405493, "8d43f083f818", 1),           # key up: arrow-key table lookup
     (0x40B287, "a16c424800", 2),             # main loop: mov eax, g_screen
+    (0x42EBB7, "8b4424083d00010000", 3),     # video message callback: Escape check
+    (0x42EB80, "83ec1c8d442400", 4),         # video message callback: entry, once per frame
 ]
-QOL_JUMPS = {0x403F5F, 0x405493}
+QOL_JUMPS = {0x403F5F, 0x405493, 0x42EBB7, 0x42EB80}
 
 # Hook sites for patches/screenmode.asm: (VA, original bytes, header entry
 # index or None to NOP). A hooked site becomes "call entry" padded with NOPs,

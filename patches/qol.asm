@@ -1,5 +1,6 @@
 ; Quality-of-life additions for BEASTS.EXE (EU CD release), installed at
-; every resolution: WASD camera scrolling, F5 quicksave and F9 quickload.
+; every resolution: WASD camera scrolling, F5 quicksave, F9 quickload, and
+; skipping videos with any key or mouse click.
 ;
 ; bbpatch.py appends the assembled bytes as a new PE section at VA 0x71F000
 ; (the first free one, so screenmode follows it at 0x720000) and redirects the
@@ -25,15 +26,42 @@ SHOW_MESSAGE    equ 0x41DE40    ; thiscall Messages_Add(text), on MESSAGES
 MESSAGES        equ 0x662C98
 VK_F5           equ 0x74
 VK_F9           equ 0x78
+VIDEO_FRAME_BODY equ 0x42EB87   ; video callback after its first 7 bytes
+VIDEO_MSG_STOP  equ 0x42EBCB    ; video callback: return 1 (stop the video)
+VIDEO_MSG_DISPATCH equ 0x42EBD5 ; video callback: TranslateMessage, DispatchMessage
+WM_KEYDOWN      equ 0x100
+WM_LBUTTONDOWN  equ 0x201
+WM_RBUTTONDOWN  equ 0x204
+WM_MBUTTONDOWN  equ 0x207
+KEY_REPEAT      equ 0x40000000  ; lParam bit 30: key was already down
+VK_ESCAPE       equ 0x1B
+SKIP_WINDOW     equ 2000        ; ms to press again after the prompt shows
+IAT_GET_TICK    equ 0x6CA378    ; GetTickCount
+IAT_GET_MODULE  equ 0x6CA39C    ; GetModuleHandleA
+IAT_GET_PROC    equ 0x6CA4AC    ; GetProcAddress
+DDRAW           equ 0x4EEBF8    ; IDirectDraw (display object +0x30)
+PROMPT_H        equ 36          ; strip at the bottom of the frame
+PROMPT_FONT_H   equ 18
+PROMPT_COLOR    equ 0x0060D0F0  ; COLORREF, warm yellow
+BLACK_BRUSH     equ 4
+TRANSPARENT     equ 1
+FW_BOLD         equ 700
+NONANTIALIASED_QUALITY equ 3
+DT_CENTER_VCENTER_SINGLELINE equ 0x25
+DDSD_SIZE       equ 0x6C        ; DDSURFACEDESC
+DDSD_HEIGHT     equ 0x08
+DDSD_WIDTH      equ 0x0C
 
 ; ---------------------------------------------------------------- header
 ; bbpatch.py reads this table; keep the order in sync with its QOL_HOOKS.
 header:
     db 'BBQL'
-    dd 1                        ; version
+    dd 2                        ; version
     dd on_key_down              ; +0x08
     dd on_key_up                ; +0x0C
     dd on_main_loop             ; +0x10
+    dd on_video_message         ; +0x14
+    dd on_video_frame           ; +0x18
 
 ; ---------------------------------------------------------------- hooks
 
@@ -73,6 +101,247 @@ on_main_loop:
     popad
     popfd
     mov eax, [G_SCREEN]
+    ret
+
+; ---------------------------------------------------------------- video skip
+; The video player loop (0x45A980) calls 0x42EB80 once per frame; it reads
+; one window message and returns 1 to stop the video. The original stops
+; only on Escape. Now Escape still stops at once, and any other new key
+; press or mouse button press shows "Press again to skip" at the bottom of
+; the frame; a second press within SKIP_WINDOW ms stops the video, otherwise
+; the prompt goes away. Auto-repeat doesn't count (a key held from before
+; the video doesn't arm it), nor does Alt (WM_SYSKEYDOWN), so Alt+Enter
+; doesn't skip.
+
+; Jumped to from 0x42EB80 (replaces "sub esp, 0x1C; lea eax, [esp]"), every
+; frame, after the previous frame was drawn: keep the prompt on screen (the
+; player redraws the whole frame) or time it out.
+on_video_frame:
+    pushfd
+    pushad
+    mov eax, [skip_until]
+    test eax, eax
+    jz .ret
+    call [IAT_GET_TICK]
+    sub eax, [skip_until]
+    js .draw
+    mov dword [skip_until], 0
+    xor eax, eax
+    call draw_skip_prompt
+    jmp .ret
+.draw:
+    mov eax, 1
+    call draw_skip_prompt
+.ret:
+    popad
+    popfd
+    sub esp, 0x1C
+    lea eax, [esp]
+    jmp VIDEO_FRAME_BODY
+
+; Jumped to from 0x42EBB7 (replaces "mov eax, [msg.message]; cmp eax,
+; WM_KEYDOWN") once a message has been read; [esp+4] is the MSG.
+on_video_message:
+    mov eax, [esp+8]            ; message
+    cmp eax, WM_KEYDOWN
+    jne .mouse
+    cmp dword [esp+12], VK_ESCAPE
+    je .stop
+    test dword [esp+16], KEY_REPEAT
+    jnz .dispatch
+    jmp .press
+.mouse:
+    cmp eax, WM_LBUTTONDOWN
+    je .press
+    cmp eax, WM_RBUTTONDOWN
+    je .press
+    cmp eax, WM_MBUTTONDOWN
+    jne .dispatch
+.press:
+    call [IAT_GET_TICK]
+    mov ecx, [skip_until]
+    test ecx, ecx
+    jz .arm
+    cmp eax, ecx
+    js .stop                    ; second press in time
+.arm:
+    add eax, SKIP_WINDOW
+    or eax, 1                   ; 0 means not armed
+    mov [skip_until], eax
+    pushad
+    mov eax, 1
+    call draw_skip_prompt
+    popad
+.dispatch:
+    jmp VIDEO_MSG_DISPATCH      ; as the original does for other messages
+.stop:
+    mov dword [skip_until], 0
+    jmp VIDEO_MSG_STOP
+
+; eax = 1: draw the prompt, 0: clear it. Draws with GDI on the primary
+; surface (IDirectDraw::GetGDISurface, which cnc-ddraw returns without
+; AddRef) in a strip at the bottom of the frame, which the videos leave
+; black. The strip comes from the surface size: cnc-ddraw's DC bitmap is
+; taller than the mode (GetClipBox says 640x680 for 640x480). Clobbers eax,
+; ecx, edx.
+draw_skip_prompt:
+    push ebp
+    mov ebp, esp
+    sub esp, 32 + DDSD_SIZE     ; -4 flag, -8 surface, -12 hdc,
+                                ; -16 previous font, -32 rect, then desc
+    mov [ebp-4], eax
+    call resolve_gdi
+    test eax, eax
+    jz .out
+    mov ecx, [DDRAW]
+    test ecx, ecx
+    jz .out
+    lea eax, [ebp-8]
+    push eax
+    push ecx
+    mov eax, [ecx]
+    call [eax+0x38]             ; GetGDISurface
+    test eax, eax
+    jnz .out
+    mov ecx, [ebp-8]
+    test ecx, ecx
+    jz .out
+    lea edx, [ebp-32-DDSD_SIZE]
+    mov dword [edx], DDSD_SIZE
+    push edx
+    push ecx
+    mov eax, [ecx]
+    call [eax+0x58]             ; GetSurfaceDesc
+    test eax, eax
+    jnz .out
+    mov dword [ebp-32], 0       ; rect: bottom PROMPT_H rows, full width
+    mov eax, [ebp-32-DDSD_SIZE+DDSD_WIDTH]
+    mov [ebp-32+8], eax
+    mov eax, [ebp-32-DDSD_SIZE+DDSD_HEIGHT]
+    mov [ebp-32+12], eax
+    sub eax, PROMPT_H
+    mov [ebp-32+4], eax
+    mov ecx, [ebp-8]
+    lea eax, [ebp-12]
+    push eax
+    push ecx
+    mov eax, [ecx]
+    call [eax+0x44]             ; GetDC
+    test eax, eax
+    jnz .out
+
+    push BLACK_BRUSH
+    call [p_GetStockObject]
+    push eax
+    lea eax, [ebp-32]
+    push eax
+    push dword [ebp-12]
+    call [p_FillRect]
+    cmp dword [ebp-4], 0
+    je .release
+
+    mov eax, [prompt_font]
+    test eax, eax
+    jnz .font
+    push str_font_face
+    push 0                      ; pitch and family
+    push NONANTIALIASED_QUALITY
+    push 0                      ; clip precision
+    push 0                      ; out precision
+    push 0                      ; charset ANSI
+    push 0                      ; strike out
+    push 0                      ; underline
+    push 0                      ; italic
+    push FW_BOLD
+    push 0                      ; orientation
+    push 0                      ; escapement
+    push 0                      ; width
+    push -PROMPT_FONT_H
+    call [p_CreateFontA]
+    mov [prompt_font], eax
+.font:
+    push eax
+    push dword [ebp-12]
+    call [p_SelectObject]
+    mov [ebp-16], eax
+    push TRANSPARENT
+    push dword [ebp-12]
+    call [p_SetBkMode]
+    push PROMPT_COLOR
+    push dword [ebp-12]
+    call [p_SetTextColor]
+    push DT_CENTER_VCENTER_SINGLELINE
+    lea eax, [ebp-32]
+    push eax
+    push -1
+    push str_skip_prompt
+    push dword [ebp-12]
+    call [p_DrawTextA]
+    mov eax, [ebp-16]
+    test eax, eax
+    jz .release
+    push eax
+    push dword [ebp-12]
+    call [p_SelectObject]
+.release:
+    push dword [ebp-12]
+    mov ecx, [ebp-8]
+    push ecx
+    mov eax, [ecx]
+    call [eax+0x68]             ; ReleaseDC
+.out:
+    mov esp, ebp
+    pop ebp
+    ret
+
+; Look up the GDI and user32 functions once (the game doesn't import them).
+; eax = 1 when all are available. Clobbers ecx, edx.
+resolve_gdi:
+    mov eax, [gdi_ready]
+    test eax, eax
+    jnz .ret
+    push ebx
+    push esi
+    push edi
+    mov esi, gdi_names
+    mov edi, gdi_procs
+.module:
+    cmp byte [esi], 0
+    je .done
+    push esi
+    call [IAT_GET_MODULE]
+    test eax, eax
+    jz .fail
+    mov ebx, eax
+.skip_module:
+    lodsb
+    test al, al
+    jnz .skip_module
+.proc:
+    cmp byte [esi], 0
+    je .next_module
+    push esi
+    push ebx
+    call [IAT_GET_PROC]
+    test eax, eax
+    jz .fail
+    stosd
+.skip_proc:
+    lodsb
+    test al, al
+    jnz .skip_proc
+    jmp .proc
+.next_module:
+    inc esi
+    jmp .module
+.done:
+    mov dword [gdi_ready], 1
+    mov eax, 1
+.fail:
+    pop edi
+    pop esi
+    pop ebx
+.ret:
     ret
 
 ; eax = ebx, with W/A/S/D replaced by VK_UP/LEFT/DOWN/RIGHT.
@@ -209,3 +478,23 @@ msg_saved       db 'Game saved (F9 to load)', 0
 msg_save_failed db 'Quicksave failed', 0
 msg_loaded      db 'Quicksave loaded', 0
 msg_no_save     db 'No quicksave yet (F5 to save)', 0
+
+skip_until      dd 0            ; GetTickCount until a second press skips, 0 = not armed
+prompt_font     dd 0
+gdi_ready       dd 0
+gdi_procs:                      ; filled in gdi_names order
+p_GetStockObject dd 0
+p_CreateFontA   dd 0
+p_SelectObject  dd 0
+p_SetBkMode     dd 0
+p_SetTextColor  dd 0
+p_FillRect      dd 0
+p_DrawTextA     dd 0
+gdi_names       db 'gdi32.dll', 0
+                db 'GetStockObject', 0, 'CreateFontA', 0
+                db 'SelectObject', 0, 'SetBkMode', 0, 'SetTextColor', 0, 0
+                db 'user32.dll', 0
+                db 'FillRect', 0, 'DrawTextA', 0, 0
+                db 0
+str_font_face   db 'Arial', 0
+str_skip_prompt db 'Press again to skip', 0

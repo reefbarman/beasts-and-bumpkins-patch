@@ -174,6 +174,14 @@ WASD scrolling and F5/F9 quicksave started in `screenmode`, which is only instal
 
 Test at 1280x720: the toolbar spans the full width and looks seamless, the season icon and the CHEAT label sit at the right edge, and the season tooltip works. Open: a little lag in missions (probably the per-frame full repaint), and skipping the intro video froze for about 30 seconds before the menu.
 
+### Skipping videos (`qol`)
+
+- `PlayVideo` passes the player (`0x45AB50`) a callback, `0x42EB80`, which the playback loop (`0x45A980`) calls once per frame through `[player+0x3DC]`, before decoding the next frame. It peeks and reads one window message and returns 1 (stop) only for `WM_KEYDOWN` with Escape; everything else is translated and dispatched.
+- `on_video_message` (jump from `0x42EBB7`) keeps Escape immediate. Any other new key press (lParam bit 30 clear, so auto-repeat from a key held before the video doesn't count) or left/right/middle button press arms the skip for 2 s and shows "Press again to skip"; a second press while armed stops the video. `WM_SYSKEYDOWN` is ignored, so Alt+Enter doesn't skip.
+- `on_video_frame` (jump from the entry, `0x42EB80`) redraws the prompt every frame while armed (the player rewrites the whole frame, borders included) and clears it on time-out.
+- The prompt is GDI text on the primary: `IDirectDraw::GetGDISurface` (vtable `+0x38`, `0x4EEBF8`), which cnc-ddraw returns without AddRef, then `GetDC`/`ReleaseDC`. The strip is placed from `GetSurfaceDesc`: the DC's bitmap is taller than the mode (`GetClipBox` gives 640x680 for 640x480), so placing it from the clip box drew it off screen.
+- Tested at 1280x720: prompt shows and times out, double press and Escape skip, intro and mission videos.
+
 ## Open questions to settle while implementing
 
 - Which state the mission briefing runs in. If it's state 2, it needs its own 640x480 scope around the briefing call.
