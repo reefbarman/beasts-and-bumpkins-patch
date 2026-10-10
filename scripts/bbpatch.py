@@ -145,8 +145,18 @@ SCREENMODE_HOOKS = [
     (0x42B260, "56a13c444800", 8),           # SetViewMode(mode) entry
     (0x40BBA1, "a0bc474800", 9),             # mission frame: full repaint above 640x480
     (0x40BEF2, "b9a0195d00", 10),            # before toolbar: clear strip right of it
+    (0x419ABC, "e8cf620100", 11),            # toolbar background blit
+    (0x419C46, "bf59020000", 12),            # toolbar slots: x of slot 0
+    (0x419D80, "8b44240853", 13),            # Toolbar_Click(x, y) entry
+    (0x41A0B0, "83ec04b9ffffffff", 14),      # Toolbar_Tooltip(x, y, buf) entry
+    (0x40BF76, "b87f020000", 15),            # season icon x: 0x27F - width
+    (0x40BFA2, "b87f020000", 15),            # season icon dirty rect x1
+    (0x40BF9B, "6880020000", 16),            # season icon dirty rect x2
+    (0x42AE5A, "3d58020000", 17),            # season hover zone left
+    (0x42AE6A, "3d80020000", 18),            # season hover zone right
+    (0x40C4AD, "6876020000", 19),            # CHEAT label x
 ]
-SCREENMODE_JUMPS = {0x41FFC0, 0x42B260}
+SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0}
 
 
 def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, list[int]]:
@@ -164,7 +174,7 @@ def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, li
 
 
 def patch_screenmode() -> tuple[list[Edit], Section]:
-    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 11)
+    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 20)
     edits = []
     for va, original_hex, entry in SCREENMODE_HOOKS:
         original = bytes.fromhex(original_hex)

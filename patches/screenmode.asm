@@ -28,6 +28,14 @@ TOOLBAR_H       equ 0x29        ; top toolbar height; the map viewport starts be
 D_BACK          equ 0x38        ; IDirectDrawSurface* back buffer
 DDS_BLT         equ 0x14        ; IDirectDrawSurface vtable
 DDBLT_COLORFILL_WAIT equ 0x01000400
+SPRITE_BLIT     equ 0x42FD90    ; thiscall Sprite_Blit(x, y, frame or 0xFF, to_back), ret 16
+; Wide toolbar: the 640-wide image is cut at TB_SPLIT. The left part stays,
+; the right part (slots and the hand) is anchored to the right edge, and the
+; gap is filled with a plain stone slice of the image.
+TB_SPLIT        equ 400         ; after the last button (0x17C), before slot 5 (0x1B1)
+TB_TILE_SRC     equ 400         ; plain stone slice used as filler
+TB_TILE_W       equ 64
+TB_DEAD_X       equ 0x17D       ; an x no toolbar button or slot answers to
 
 
 D_DDRAW         equ 0x30        ; IDirectDraw*
@@ -45,7 +53,7 @@ PORTRAIT_INSET  equ 100         ; 640x480: portrait at 540,380
 ; bbpatch.py reads this table; keep the order in sync with its HOOKS.
 header:
     db 'BBSM'
-    dd 3                        ; version
+    dd 4                        ; version
     dd on_registry_read         ; +0x08
     dd on_enter_mission         ; +0x0C
     dd on_enter_menu            ; +0x10
@@ -57,6 +65,15 @@ header:
     dd on_set_view_mode         ; +0x28
     dd on_mission_frame         ; +0x2C
     dd on_before_toolbar        ; +0x30
+    dd on_toolbar_bg            ; +0x34
+    dd on_toolbar_slots         ; +0x38
+    dd on_toolbar_click         ; +0x3C
+    dd on_toolbar_tip           ; +0x40
+    dd on_season_x              ; +0x44
+    dd push_season_x2           ; +0x48
+    dd cmp_season_lo            ; +0x4C
+    dd cmp_season_hi            ; +0x50
+    dd push_cheat_x             ; +0x54
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -254,7 +271,187 @@ on_before_toolbar:
     mov ecx, 0x5D19A0
     ret
 
+; Replaces "call SPRITE_BLIT" for the toolbar background (0x419ABC, always
+; called with 0, 0, 0xFF, 1). Above 640 wide, draw the image as left part,
+; tiled filler, and right part anchored to the screen edge, by narrowing the
+; display clip rect (DISPLAY+0..+0xC = x, y, w, h) that the blit honours.
+on_toolbar_bg:
+    mov eax, [G_WIDTH]
+    sub eax, FRONT_W
+    jg .wide
+    jmp SPRITE_BLIT
+.wide:
+    push ebp
+    push esi
+    push edi
+    push ebx
+    mov esi, ecx                ; sprite
+    mov ebp, eax                ; extra width
+    push dword [DISPLAY+12]     ; save clip
+    push dword [DISPLAY+8]
+    push dword [DISPLAY+4]
+    push dword [DISPLAY]
+    mov ecx, esi                ; whole image at 0,0 with the game's clip
+    push 1
+    push 0xFF
+    push 0
+    push 0
+    call SPRITE_BLIT
+    mov edi, TB_SPLIT           ; filler from TB_SPLIT to TB_SPLIT + extra
+    lea ebx, [ebp+TB_SPLIT]
+.tile:
+    cmp edi, ebx
+    jge .right
+    mov eax, ebx
+    sub eax, edi
+    cmp eax, TB_TILE_W
+    jle .clip
+    mov eax, TB_TILE_W
+.clip:
+    mov [DISPLAY], edi
+    mov dword [DISPLAY+4], 0
+    mov [DISPLAY+8], eax
+    mov dword [DISPLAY+12], TOOLBAR_H
+    mov ecx, esi
+    push 1
+    push 0xFF
+    push 0
+    lea eax, [edi-TB_TILE_SRC]
+    push eax
+    call SPRITE_BLIT
+    add edi, TB_TILE_W
+    jmp .tile
+.right:
+    mov [DISPLAY], ebx          ; right part, shifted by the extra width
+    mov dword [DISPLAY+4], 0
+    mov dword [DISPLAY+8], FRONT_W - TB_SPLIT
+    mov dword [DISPLAY+12], TOOLBAR_H
+    mov ecx, esi
+    push 1
+    push 0xFF
+    push 0
+    push ebp
+    call SPRITE_BLIT
+    pop dword [DISPLAY]         ; restore clip
+    pop dword [DISPLAY+4]
+    pop dword [DISPLAY+8]
+    pop dword [DISPLAY+12]
+    pop ebx
+    pop edi
+    pop esi
+    pop ebp
+    ret 16
+
+; Replaces "mov edi, 0x259" (0x419C46): x of slot 0, the rightmost toolbar
+; slot. Shift the slots with the right part of the toolbar.
+on_toolbar_slots:
+    mov edi, [G_WIDTH]
+    sub edi, FRONT_W
+    jg .w
+    xor edi, edi
+.w: add edi, 0x259
+    ret
+
+; Entry of Toolbar_Click(x, y) (0x419D80). Map screen x back to the 640
+; layout, then run the displaced "mov eax, [esp+8]; push ebx".
+on_toolbar_click:
+    call remap_toolbar_x
+    mov eax, [esp+8]
+    push ebx
+    jmp 0x419D85
+
+; Entry of Toolbar_Tooltip(x, y, buf) (0x41A0B0). Same mapping, then the
+; displaced "sub esp, 4; mov ecx, -1".
+on_toolbar_tip:
+    call remap_toolbar_x
+    sub esp, 4
+    mov ecx, -1
+    jmp 0x41A0B8
+
+; Right-aligned HUD items laid out for 640: shift them by the extra width.
+; Season icon: drawn at 0x27F - width, y 0x2E (0x40BF76), dirty rect up to
+; x 0x280 (0x40BF9B/0x40BFA2), hover zone x 0x258..0x280 (0x42AE5A/0x42AE6A).
+; CHEAT label (cheat mode on): text at x 0x276, y 6 (0x40C4AD).
+
+; Replaces "mov eax, 0x27F".
+on_season_x:
+    call extra_width
+    add eax, 0x27F
+    ret
+
+; Replaces "push 0x280".
+push_season_x2:
+    push eax
+    call extra_width
+    add eax, 0x280
+    jmp push_eax_tail
+
+; Replaces "push 0x276".
+push_cheat_x:
+    push eax
+    call extra_width
+    add eax, 0x276
+    jmp push_eax_tail
+
+; Replaces "cmp eax, 0x258". Flags are the result.
+cmp_season_lo:
+    push edx
+    mov edx, 0x258
+    jmp cmp_shifted_tail
+
+; Replaces "cmp eax, 0x280".
+cmp_season_hi:
+    push edx
+    mov edx, 0x280
+cmp_shifted_tail:               ; [esp] = saved edx, edx = 640-layout x
+    push eax
+    call extra_width
+    add edx, eax
+    pop eax
+    cmp eax, edx
+    pop edx                     ; pop and ret keep the flags
+    ret
+
 ; ---------------------------------------------------------------- helpers
+
+; eax = how much wider than 640 the display is (0 if not wider).
+extra_width:
+    mov eax, [G_WIDTH]
+    sub eax, FRONT_W
+    jg .done
+    xor eax, eax
+.done:
+    ret
+
+; Finishes a stub that replaced a 5-byte "push imm32": the stack holds the
+; saved eax and then the return address, and eax holds the value to push.
+; Leave the value where the return address was, as if pushed, and return.
+push_eax_tail:
+    xchg eax, [esp+4]           ; [esp+4] = value, eax = return address
+    xchg eax, [esp]             ; [esp] = return address, eax = saved eax
+    ret
+
+; Called first thing from a hooked function entry, so the caller's x
+; argument is at [esp+8] here. Right part: subtract the extra width.
+; Filler: a dead x. Preserves registers except flags.
+remap_toolbar_x:
+    push eax
+    mov eax, [G_WIDTH]
+    sub eax, FRONT_W
+    jle .done
+    add eax, TB_SPLIT
+    cmp [esp+12], eax
+    jl .mid
+    sub eax, TB_SPLIT
+    sub [esp+12], eax
+    jmp .done
+.mid:
+    cmp dword [esp+12], TB_SPLIT
+    jl .done
+    mov dword [esp+12], TB_DEAD_X
+.done:
+    pop eax
+    ret
 
 sync_mode:
     push dword [VIEW_MODE]

@@ -135,6 +135,25 @@ Two more hooks, both inert at 640x480:
 
 Test at 1280x720: cursor, tooltip and thought-bubble trails are gone, no black bars after loading a save, no visible slowdown or flicker.
 
+### Full-width toolbar and right-aligned HUD (screenmode v4)
+
+The toolbar is one 640x41 sprite drawn by `Toolbar_Draw` (`0x419AA0`) with `Sprite_Blit(0, 0, 0xFF, 1)` at `0x419ABC`. `Sprite_Blit` (`0x42FD90`) clips against the display rect at `DISPLAY+0..+0xC` (x, y, w, h), so narrowing that rect cuts a sprite without touching the image data. Above 640 wide, `on_toolbar_bg` draws:
+
+- the image at 0,0 (the buttons up to x 400);
+- a 64-px stone slice from x 400 repeated across the gap;
+- the right part (x 400-640: four slots and the end cap) shifted by `g_width - 640`.
+
+The rest of the change:
+
+- The slot icons start at `mov edi, 0x259` (`0x419C46`) and step left by 0x22, so that hook only adds the extra width.
+- Clicks (`Toolbar_Click(x, y)`, `0x419D80`, called from `0x4058DD`) and tooltips (`Toolbar_Tooltip(x, y, buf)`, `0x41A0B0`, called from `0x42ABF2`) are hooked at entry. Both map screen x back to the 640 layout: the right part subtracts the extra width, and the filler maps to x 0x17D, which no button answers to.
+- Right-aligned items in the 640 layout:
+  - Season icon: drawn at `0x27F - width`, y 0x2E (`0x40BF76`); its dirty rect is at `0x40BF9B`/`0x40BFA2`; its hover zone is x 0x258-0x280, y 0x28-0x50 (`0x42AE5A`/`0x42AE6A`).
+  - CHEAT label: x 0x276 (`0x40C4AD`, shown while cheat mode is on).
+  All of these are shifted by the extra width. The hover tooltip already clamps to `g_width` (`0x42B09E`). It shows after the mouse has been still for 36 frames (`0x42AB8C`).
+
+Test at 1280x720: the toolbar spans the full width and looks seamless, the season icon and the CHEAT label sit at the right edge, and the season tooltip works. Open: a little lag in missions (probably the per-frame full repaint), and skipping the intro video froze for about 30 seconds before the menu.
+
 ## Open questions to settle while implementing
 
 - Which state the mission briefing runs in. If it's state 2, it needs its own 640x480 scope around the briefing call.
