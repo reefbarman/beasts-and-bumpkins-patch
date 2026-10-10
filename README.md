@@ -23,6 +23,7 @@ The copy used for development is the "ISO Version" (English) from [MyAbandonware
 | Slow gameplay               | Also cnc-ddraw: it replaces DirectDraw outright, which covers the slowdown bb-patch fixes with dxwrapper/DDrawCompat               |
 | CD music                    | Audio tracks ripped from the disc image to OGG, played by [ogg-winmm](https://github.com/ayuanx/ogg-winmm) v2025.01.16 (see below) |
 | Developer mode (cheats)     | Optional 4-byte patch (`install --console`), from bb-patch. `--console-key F12` or `Z` moves it off F11                            |
+| Bigger map view             | Optional (`install --resolution WxH`): missions run at that size, menus, briefings and videos stay 640x480 (our own code patch)    |
 
 Wrappers are downloaded from their GitHub releases and checked against pinned SHA-256 hashes.
 
@@ -45,7 +46,7 @@ python3 scripts/bb.py install
 #    macOS: creates/uses the CrossOver bottle "BeastsAndBumpkins" (--bottle NAME to change)
 #    Windows: installs to C:\Games\Beasts (--target DIR to change, avoid Program Files)
 #    --no-music skips the CD music wrapper
-#    --resolution 1280x720 is experimental (bb-patch's edits: menus, briefings and videos glitch)
+#    --resolution 1280x720 is experimental: missions at 1280x720, the rest at 640x480
 #    --console enables developer mode on F11
 #    --console --console-key Z (or F12) uses another key; macOS takes F11 for Show Desktop
 
@@ -81,7 +82,8 @@ The game plays music with MCI `cdaudio` commands from the disc's 7 audio tracks,
 | Script               | Purpose                                                          |
 | -------------------- | ---------------------------------------------------------------- |
 | `scripts/bb.py`      | Main CLI: `prepare`, `install`, `run`                            |
-| `scripts/bbpatch.py` | Verified byte patches: `nocd` (default), `console`, `resolution` |
+| `scripts/bbpatch.py` | Verified patches: `nocd` (default), `console`, `screenmode`      |
+| `patches/*.asm`      | Our own x86 code patches (nasm source plus the assembled `.bin`) |
 | `scripts/bincue.py`  | Split BIN/CUE into ISO data track and WAV audio tracks           |
 | `scripts/iso9660.py` | Extract files from the ISO data track (pure Python)              |
 | `scripts/peinfo.py`  | Print hashes, PE header, sections and imports                    |
@@ -92,4 +94,4 @@ Your disc files are never modified. To reset, back up your saves, delete the gam
 
 ## Credits and licences
 
-Byte patches derive from bb-patch (GPL-3.0). cnc-ddraw (MIT) and ogg-winmm are downloaded at setup time, not redistributed here. Beasts & Bumpkins is © Worldweaver Productions / Electronic Arts.
+The no-CD and console byte patches derive from bb-patch (GPL-3.0). cnc-ddraw (MIT) and ogg-winmm are downloaded at setup time, not redistributed here. Beasts & Bumpkins is © Worldweaver Productions / Electronic Arts.

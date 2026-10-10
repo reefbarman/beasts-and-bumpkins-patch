@@ -193,9 +193,13 @@ def cmd_prepare(args) -> int:
 # ---------------------------------------------------------------- install
 
 
-def registry_values(win_dir: str) -> dict:
+def registry_values(win_dir: str, resolution: tuple[int, int]) -> dict:
     d = win_dir.rstrip("\\") + "\\"
     return {
+        # Read by the game at startup. With the screenmode patch this is the
+        # mission size; menus, briefings and videos stay at 640x480.
+        "DisplayWidth": resolution[0],
+        "DisplayHeight": resolution[1],
         "Audio": d + "audio.box",
         "CD": d,
         "InstallDir": d[2:],
@@ -271,7 +275,7 @@ def install_windows(args, music: bool, resolution: tuple[int, int]) -> dict:
         print("warning: installing under Program Files can break saves (UAC virtualisation)")
     copy_game(Path(win_dir), music, resolution)
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_KEY) as key:
-        for k, v in registry_values(win_dir).items():
+        for k, v in registry_values(win_dir, resolution).items():
             if isinstance(v, int):
                 winreg.SetValueEx(key, k, 0, winreg.REG_DWORD, v)
             else:
@@ -299,7 +303,7 @@ def install_crossover(args, music: bool, resolution: tuple[int, int]) -> dict:
     copy_game(game_dir, music, resolution)
     overrides = {"ddraw": "native,builtin", "winmm": "native,builtin" if music else None}
     with tempfile.NamedTemporaryFile("w", suffix=".reg", delete=False, newline="") as f:
-        f.write(reg_file_text(registry_values(win_dir), overrides))
+        f.write(reg_file_text(registry_values(win_dir, resolution), overrides))
         reg = f.name
     try:
         subprocess.run(wine_cmd(bottle) + ["--no-gui", "regedit", "/S", "Z:" + reg.replace("/", "\\")],
@@ -325,10 +329,12 @@ def cmd_install(args) -> int:
         if not m:
             raise SystemExit("--resolution must look like 1280x720")
         resolution = (int(m.group(1)), int(m.group(2)))
+        if resolution[0] < 640 or resolution[1] < 480:
+            raise SystemExit("--resolution must be at least 640x480")
     if resolution != (640, 480):
-        print("warning: resolution patch is experimental (bb-patch's edits; UI glitches are known)")
-        patches.append("resolution")
-    bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, patches, args.resolution)
+        print("note: larger resolutions are experimental; some mission HUD items are still misplaced")
+        patches.append("screenmode")
+    bbpatch.cmd_apply(FILES / "BEASTS.EXE", BUILD_EXE, patches, None)
     music = not args.no_music and all((MUSIC / f"Track{n}.ogg").exists() for n in TRACKS)
     if not music and not args.no_music:
         print("warning: music tracks missing, installing without CD music (rerun prepare with an OGG encoder)")
@@ -379,7 +385,8 @@ def main() -> int:
     pi.add_argument("--console-key", choices=["F11", "F12", "Z"], default="F11",
                     help="developer mode key (default F11, which macOS uses for Show Desktop)")
     pi.add_argument("--resolution", metavar="WxH",
-                    help="experimental game resolution, e.g. 1280x720 (default 640x480)")
+                    help="experimental mission resolution, e.g. 1280x720 (default 640x480); "
+                         "menus, briefings and videos stay 640x480")
     pr = sub.add_parser("run", help="launch the game")
     mode = pr.add_mutually_exclusive_group()
     mode.add_argument("--window", action="store_true", help="window, 2x for 640x480 (default)")

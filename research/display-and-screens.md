@@ -67,6 +67,36 @@ Keep the globals and display mode at 640x480 everywhere except in missions.
 
 cnc-ddraw handles each `SetDisplayMode` by rescaling into the same window, so the window doesn't need to change size between menus and missions. In practice: 640x480 screens stretch to fill the window with the aspect ratio kept (pillarboxed in a 16:9 window), and missions fill it at 1:1.
 
+## Implemented: `screenmode` patch
+
+Source `patches/screenmode.asm`, applied by `bbpatch.py --patch screenmode` as a new section `.bbsm` at VA `0x71F000`. `bb.py install --resolution WxH` writes `DisplayWidth`/`DisplayHeight` (always, 640x480 by default) and applies the patch for sizes above 640x480. It differs from the proposal above in three ways:
+
+- **Mission size from the registry.** The `call 0x4064B0` (registry read) in WinMain at `0x406B3A` is wrapped: after the read, the globals are copied to `mission_w/h` and reset to 640x480 before `Display_Init`. The EXE has no size baked in.
+- **Videos** only reset the globals and clip at the `g_screen = 3` write. `PlayVideo` then does its own release and `SetDisplayMode`. The two restores (`mov [g_screen], ebp`) resync to the mission size if they go back to state 2.
+- **Portrait** constructor `0x42A310` computes `mission_w - 100`, `mission_h - 100` instead of the constants 540, 380.
+
+Hooks: `0x406B3A`, `0x41F851`/`0x41F9F3`/`0x41FD8D` (state 2), `0x41FD3E`/`0x42DF88` (state 1), `0x432F0E`, `0x432F58`/`0x4330DE`, main loop `0x40B244` (backstop sync), `0x42A310`/`0x42A32A`. `0x40B261` (state 0 to 1) isn't hooked because both states are 640x480.
+
+### Startup audit (g_width/g_height, 129 references)
+
+- No buffers or surfaces are allocated once from the globals. All `CreateSurface` calls outside `Display_CreatePrimary` take sprite or video sizes. The only width×height product (`0x431AF0`) is the screenshot writer, computed per call.
+- `0x402FA0` is a static initialiser (viewport `0x604638`, `0x513440`) that runs before the registry read, so it always saw 640x480. The per-frame view update `0x40BBA0` recomputes those values, the clip and the view centre from the globals every frame.
+- Mission setup (`0x414C90`, the camera bounds `0x6A8F24/28`) runs after the state 2 hooks, so it sees the mission size.
+
+### Test at 1280x720 (macOS, CrossOver, cnc-ddraw)
+
+| Screen                               | Result                                                                                               |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Intro videos                         | Centred, scaled with the 640x480 frame (the video itself is smaller than 640x480, so it has borders) |
+| Main menu                            | Correct, fills the window height with side bars                                                      |
+| Mission                              | 1280x720 view, plays normally                                                                        |
+| Return to menu, load game            | Both work                                                                                            |
+| Briefing                             | Still drawn at 640x480 into the top-left of 1280x720, with garbage below row 480                     |
+| In-mission pause (Esc) menu          | Same: top-left 640x480, and the cursor leaves trails outside it                                      |
+| Thought bubble over unexplored black | Leaves a trail (the black area isn't redrawn)                                                        |
+
+So the briefing and pause menu run in state 2. They need their own 640x480 scopes, probably keyed off the sub-state `0x484274` or the functions that draw them.
+
 ## Open questions to settle while implementing
 
 - Which state the mission briefing runs in. If it's state 2, it needs its own 640x480 scope around the briefing call.

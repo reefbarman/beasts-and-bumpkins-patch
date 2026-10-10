@@ -28,5 +28,7 @@
 *.ogg
 *.gpr
 *.rep/
+# Our own assembled code patches (built from patches/*.asm) are committed.
+!patches/*.bin
 .DS_Store
 __pycache__/

@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """Produce a patched copy of BEASTS.EXE from a known original.
 
-Patches are byte-for-byte edits derived from bb-patch
-(https://github.com/bb-patch/bb-patch, GPL-3.0, commit f2312876), verified
-against the EU CD release below. The input is never modified, unknown inputs
-are refused and every edit checks its original bytes first.
+Byte edits are derived from bb-patch (https://github.com/bb-patch/bb-patch,
+GPL-3.0, commit f2312876) or our own analysis, verified against the EU CD
+release below. The input is never modified, unknown inputs are refused and
+every edit checks its original bytes first. Output is always built from the
+original, so applying is idempotent.
+
+Code patches (screenmode) are our own assembly in patches/*.asm, assembled
+with nasm into patches/*.bin (committed, so applying needs no nasm), appended
+as a new PE section, and reached through call hooks at known sites.
 
 Usage:
   bbpatch.py inspect <BEASTS.EXE>
   bbpatch.py apply <BEASTS.EXE> <output.exe> [--patch NAME ...] [--resolution WxH]
+  bbpatch.py assemble          (rebuild patches/*.bin with nasm)
 
 Default patches: nocd. Optional: console, console-f12 / console-z (developer
-mode on F12 or Z instead of F11), resolution.
+mode on F12 or Z instead of F11), screenmode (640x480 front end, registry
+size in missions), resolution (bb-patch's EXE default edits; superseded by
+screenmode plus the DisplayWidth/DisplayHeight registry values).
 """
 
 from __future__ import annotations
@@ -19,7 +27,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -28,6 +38,10 @@ from pathlib import Path
 # EU CD release, md5 2d2852fcb22e6f65a0cf3415abaf4411 (the bb-patch test target).
 KNOWN_ORIGINAL_SHA256 = "b30d7d0762dbd808407f0d95c6fdafa0b52ce67d0b0f20c8fbb7fa66a2213e89"
 KNOWN_ORIGINAL_SIZE = 916992
+
+PATCHES_DIR = Path(__file__).resolve().parent.parent / "patches"
+IMAGE_BASE = 0x400000
+TEXT_VA, TEXT_RAW, TEXT_SIZE = 0x401000, 0x400, 0x80A00
 
 
 @dataclass(frozen=True)
@@ -39,6 +53,12 @@ class Edit:
 
 def u32(value: int) -> bytes:
     return struct.pack("<I", value)
+
+
+def text_offset(va: int) -> int:
+    if not TEXT_VA <= va < TEXT_VA + TEXT_SIZE:
+        raise ValueError(f"{va:#x} is outside .text")
+    return va - TEXT_VA + TEXT_RAW
 
 
 def patch_nocd() -> list[Edit]:
@@ -90,6 +110,114 @@ def patch_resolution(width: int, height: int) -> list[Edit]:
     ]
 
 
+# ------------------------------------------------------------ code patches
+
+
+@dataclass(frozen=True)
+class Section:
+    name: bytes
+    va: int
+    payload: bytes
+
+
+# Section characteristics: code | initialised data | execute | read | write.
+SECTION_FLAGS = 0xE0000060
+SCREENMODE_VA = 0x71F000
+
+# Hook sites for patches/screenmode.asm: (VA, original bytes, header entry
+# index or None to NOP). A hooked site becomes "call entry" padded with NOPs.
+SCREENMODE_HOOKS = [
+    (0x406B3A, "e871f9ffff", 0),             # WinMain: call ReadRegistry
+    (0x41F851, "c7056c42480002000000", 1),   # g_screen = 2, new game
+    (0x41F9F3, "c7056c42480002000000", 1),   # g_screen = 2, load game
+    (0x41FD8D, "c7056c42480002000000", 1),   # g_screen = 2, next mission
+    (0x41FD3E, "c7056c42480001000000", 2),   # g_screen = 1, menu handler
+    (0x42DF88, "c7056c42480001000000", 2),   # g_screen = 1, return to menu
+    (0x432F0E, "c7056c42480003000000", 3),   # g_screen = 3, PlayVideo
+    (0x432F58, "892d6c424800", 4),           # g_screen = ebp, PlayVideo restore
+    (0x4330DE, "892d6c424800", 4),           # g_screen = ebp, PlayVideo restore
+    (0x40B244, "a16c424800", 5),             # main loop: mov eax, g_screen
+    (0x42A310, "33c0c7011c020000", 6),       # portrait x = 540
+    (0x42A32A, "c741047c010000", None),      # portrait y = 380
+]
+
+
+def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, list[int]]:
+    path = PATCHES_DIR / f"{name}.bin"
+    if not path.exists():
+        raise SystemExit(f"{path} missing; run: bbpatch.py assemble")
+    blob = path.read_bytes()
+    if blob[:4] != magic:
+        raise SystemExit(f"{path}: bad magic {blob[:4]!r}")
+    targets = list(struct.unpack_from(f"<{entries}I", blob, 8))
+    for t in targets:
+        if not va <= t < va + len(blob):
+            raise SystemExit(f"{path}: entry {t:#x} outside the blob (assembled for another address?)")
+    return blob, targets
+
+
+def patch_screenmode() -> tuple[list[Edit], Section]:
+    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 7)
+    edits = []
+    for va, original_hex, entry in SCREENMODE_HOOKS:
+        original = bytes.fromhex(original_hex)
+        if entry is None:
+            replacement = b"\x90" * len(original)
+        else:
+            rel = (targets[entry] - (va + 5)) & 0xFFFFFFFF
+            replacement = b"\xe8" + u32(rel) + b"\x90" * (len(original) - 5)
+        edits.append(Edit(text_offset(va), original, replacement))
+    return edits, Section(b".bbsm", SCREENMODE_VA, blob)
+
+
+def pe_layout(data: bytes) -> tuple[int, int, int]:
+    """Return (optional header offset, section table offset, section count)."""
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    count = struct.unpack_from("<H", data, pe + 6)[0]
+    opt_size = struct.unpack_from("<H", data, pe + 20)[0]
+    return pe + 24, pe + 24 + opt_size, count
+
+
+def section_names(data: bytes) -> list[bytes]:
+    _, table, count = pe_layout(data)
+    return [data[table + 40 * i : table + 40 * i + 8].rstrip(b"\0") for i in range(count)]
+
+
+def append_section(data: bytearray, sec: Section) -> None:
+    opt, table, count = pe_layout(data)
+    sect_align, file_align = struct.unpack_from("<II", data, opt + 32)
+    size_of_headers = struct.unpack_from("<I", data, opt + 60)[0]
+    slot = table + 40 * count
+    if slot + 40 > size_of_headers or any(data[slot : slot + 40]):
+        raise SystemExit("no free section header slot")
+    last = table + 40 * (count - 1)
+    last_vsize, last_va = struct.unpack_from("<II", data, last + 8)
+    va = -(-(last_va + last_vsize) // sect_align) * sect_align
+    if IMAGE_BASE + va != sec.va:
+        raise SystemExit(f"section {sec.name!r} expects VA {sec.va:#x}, next free is {IMAGE_BASE + va:#x}")
+    if len(data) % file_align:
+        raise SystemExit("file end is not aligned; refusing to append")
+    raw_size = -(-len(sec.payload) // file_align) * file_align
+    vsize = -(-len(sec.payload) // sect_align) * sect_align
+    header = sec.name.ljust(8, b"\0") + struct.pack("<IIIIIIHHI", len(sec.payload), va, raw_size, len(data),
+                                                     0, 0, 0, 0, SECTION_FLAGS)
+    data[slot : slot + 40] = header
+    struct.pack_into("<H", data, opt - 20 + 2, count + 1)  # FileHeader.NumberOfSections
+    struct.pack_into("<I", data, opt + 56, va + vsize)     # SizeOfImage
+    data += sec.payload.ljust(raw_size, b"\0")
+
+
+def cmd_assemble() -> int:
+    nasm = shutil.which("nasm")
+    if not nasm:
+        raise SystemExit("nasm not found (macOS: brew install nasm; Windows: https://nasm.us)")
+    for src in sorted(PATCHES_DIR.glob("*.asm")):
+        out = src.with_suffix(".bin")
+        subprocess.run([nasm, "-f", "bin", "-o", str(out), str(src)], check=True)
+        print(f"assembled {out.relative_to(PATCHES_DIR.parent)} ({out.stat().st_size} bytes)")
+    return 0
+
+
 def identify(data: bytes) -> str:
     if len(data) != KNOWN_ORIGINAL_SIZE:
         return "unknown"
@@ -119,8 +247,11 @@ def cmd_inspect(path: Path) -> int:
     checks += [(f"console-{k.lower()}", patch_console_key(k)) for k in CONSOLE_KEYS]
     for name, edits in checks:
         print(f"  {name}: {state_of(data, edits)}")
+    hooks = [Edit(text_offset(va), bytes.fromhex(o), b"") for va, o, _ in SCREENMODE_HOOKS]
+    hooked = "original" if state_of(data, hooks) == "original" else "hooked"
+    print(f"  screenmode: {hooked}, section {'present' if b'.bbsm' in section_names(data) else 'absent'}")
     w, h = struct.unpack_from("<II", data, 0x82A44)
-    print(f"  resolution: {w}x{h}")
+    print(f"  resolution (EXE default): {w}x{h}")
     return 0
 
 
@@ -132,6 +263,7 @@ def cmd_apply(src: Path, dest: Path, names: list[str], resolution: str | None) -
         raise SystemExit("refusing: output must differ from input")
 
     edits: list[Edit] = []
+    sections: list[Section] = []
     for name in names:
         if name == "nocd":
             edits += patch_nocd()
@@ -144,15 +276,27 @@ def cmd_apply(src: Path, dest: Path, names: list[str], resolution: str | None) -
                 raise SystemExit("--resolution WxH is required for the resolution patch")
             w, h = (int(x) for x in resolution.lower().split("x"))
             edits += patch_resolution(w, h)
+        elif name == "screenmode":
+            hook_edits, section = patch_screenmode()
+            edits += hook_edits
+            sections.append(section)
         else:
             raise SystemExit(f"unknown patch {name}")
 
+    spans = sorted((e.offset, e.offset + len(e.original)) for e in edits)
+    for (_, end), (start, _) in zip(spans, spans[1:]):
+        if start < end:
+            raise SystemExit(f"overlapping edits at {start:#x}; these patches can't be combined")
     for e in edits:
         current = bytes(data[e.offset : e.offset + len(e.original)])
         if current != e.original:
             raise SystemExit(f"preimage mismatch at {e.offset:#x}: {current.hex()} != {e.original.hex()}")
+        if len(e.replacement) != len(e.original):
+            raise SystemExit(f"edit at {e.offset:#x} changes length")
     for e in edits:
         data[e.offset : e.offset + len(e.replacement)] = e.replacement
+    for sec in sections:
+        append_section(data, sec)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".bbpatch-")
@@ -177,11 +321,15 @@ def main() -> int:
     p_apply = sub.add_parser("apply")
     p_apply.add_argument("exe", type=Path)
     p_apply.add_argument("output", type=Path)
-    p_apply.add_argument("--patch", action="append", choices=["nocd", "console", "console-f12", "console-z", "resolution"])
+    p_apply.add_argument("--patch", action="append",
+                         choices=["nocd", "console", "console-f12", "console-z", "screenmode", "resolution"])
     p_apply.add_argument("--resolution")
+    sub.add_parser("assemble")
     args = parser.parse_args()
     if args.cmd == "inspect":
         return cmd_inspect(args.exe)
+    if args.cmd == "assemble":
+        return cmd_assemble()
     return cmd_apply(args.exe, args.output, args.patch or ["nocd"], args.resolution)
 
 
