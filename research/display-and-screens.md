@@ -161,6 +161,14 @@ Message-log tab (`tab.mfb`, the "grey bar"): drawn at x 0x190-0x1F4 at the botto
 - `on_key_down`/`on_key_up` translate W/A/S/D into the arrow codes for these two lookups only, leaving `ebx` unchanged. Test at 1280x720: the arrow keys and WASD both scroll and stop on release, and the console (Z) and save names still type normally.
 - Caveat: this lives in the `screenmode` blob, so it is only installed above 640x480.
 
+### Quicksave (F5) and quickload (F9) (screenmode v4)
+
+- Save: `0x4159C0` is cdecl `SaveGame(path, description)`. It opens the file with `"w+b"` (`0x486ED4`) through fopen `0x46BDD0`, writes with fwrite `0x46CD20`, and returns 1 on success. The pause menu's Save item (`0x41FF18`) calls it with the name buffer `0x5E42D0` and `0x6044E8`, then `0x403190` (full repaint) and `Menu_SetActive(0)` (`0x41FFC0`).
+- Load: `0x415ED0` is cdecl `LoadGame(path, from_archive)`. It resets the mission state before it opens the file (`"rb"`, `0x48416C`), so a missing file leaves the mission torn down. The pause menu's Load item (`0x41FD79`) runs `0x401110(0x5CA200, 0x6AFBE8)` on `0x513458`, sets `g_screen` 2 and `0x484274` 0, builds `savegam%d.sav` (`0x486FAC` + `0x486FA4`) into `0x6033D8`, clears the screen, calls `LoadGame(path, 0)`, then `0x403190`, `Menu_SetActive(0)`, clears `0x484278`, calls `0x42E060` (and `0x42E460` if `0x4843DC` is set) and `0x42B480(level 0x5E5CC3)` on `0x6A9950` (music).
+- Messages: `0x41DE40` is thiscall `Messages_Add(text)` on `0x662C98`, the on-screen message line (also used for "Network sync has been lost!").
+- F5 and F9 fall to the no-op entry of the key-down table. `on_key_down` records the request (only in missions, with no menu open and not typing, `0x4847B4` = 0), ignoring auto-repeat until `on_key_up` sees the release. `on_main_loop` runs it between frames with the same sequence as the menu, minus closing the menu. Quickload checks the file opens first. The quicksave uses its own file, `quicksav.sav`, so menu slots are never overwritten.
+- Test at 1280x720: F9 without a quicksave shows a message and does nothing else, F5 saves, F9 restores with a full redraw and music, both are ignored with the pause menu open, and the menu's Load still works.
+
 Test at 1280x720: the toolbar spans the full width and looks seamless, the season icon and the CHEAT label sit at the right edge, and the season tooltip works. Open: a little lag in missions (probably the per-frame full repaint), and skipping the intro video froze for about 30 seconds before the menu.
 
 ## Open questions to settle while implementing
