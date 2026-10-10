@@ -1,0 +1,38 @@
+Play.command
+  h_e08a86bb3a33a2 1-4
+README.md
+  h_e08a86bb3a33a2 44-47,49,51-58,61-63,112
+  h_e08a86bb3a33a2 50
+Install.command
+  h_e08a86bb3a33a2 1-13
+Play.bat
+  h_e08a86bb3a33a2 1-8
+scripts/bb.py
+  h_e08a86bb3a33a2 7-8,12-15,17,90-96,154-170,172,176-177,180-183,193,195,198-199,201,208-284,286,288-295,297-310,314-320,549-679,683-685,687-690,709,711
+  s_fd50f2dad1b581::t_c78d99218cc273 4-5,16,178-179,202,285,710
+.gitattributes
+  h_e08a86bb3a33a2 1-4
+Install.bat
+  h_e08a86bb3a33a2 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c68f50ced6109752bb8a344f865f78bad59d50a",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_fd50f2dad1b581": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b485aa4-9a3b-4149-bdd4-63412ebd1f17",
+        "model": "unknown"
+      },
+      "human_author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
