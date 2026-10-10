@@ -1,0 +1,24 @@
+patches/screenmode.asm
+  h_e08a86bb3a33a2 49-74,83,109-110,146-153,529-762
+  h_e08a86bb3a33a2 763
+scripts/bbpatch.py
+  h_e08a86bb3a33a2 23-26,179-180,182
+research/settings-menu.md
+  h_e08a86bb3a33a2 101-109
+scripts/bb.py
+  h_e08a86bb3a33a2 246-256,258,341-342,367,395-397
+  h_e08a86bb3a33a2 343
+config/cnc-ddraw/ddraw.ini
+  h_e08a86bb3a33a2 5-7,33-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fb066f1dcf44abc68fb7a8fa6020b99d1df10e7c",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
