@@ -154,6 +154,13 @@ The rest of the change:
 
 Message-log tab (`tab.mfb`, the "grey bar"): drawn at x 0x190-0x1F4 at the bottom once the level counter `0x5E5CC0` is non-zero (`0x41A74F`). The draw is at `0x41A76E`, the dirty rect at `0x41A787`/`0x41A79C`, and the click and hover zones at `0x414D48`/`0x414D4F` and `0x4150F3`/`0x4150FA`. All of these are shifted by half the extra width, so the tab keeps its place relative to the screen centre. Test at 1280x720: the tab sits right of centre and clicking it still opens the log. The panel it opens is the build panel (`0x41A430` on `0x5F90D8`). Its icon loop already runs until `g_width`, but the stone filler after the last icon (sprite `0x4EEBC4`, drawn at `0x41A714`) is one 640-wide image drawn once, so it ended around x 848. `on_panel_fill` repeats it, stepping by its width (`+0x44`), until the screen edge. The panel's dirty rect (`0x41A742`) already spans `g_width`. Test at 1280x720: the panel spans the full width, and the icons and their tooltips work.
 
+### Camera and keyboard scrolling (screenmode v4, WASD)
+
+- The camera position is `0x5FE288` (x, clamped to ±0x1E00) and `0x5FE290` (y, clamped to 0..0x1E00). The mission frame clamps them at `0x40BCAE` and copies them to the render globals `0x6024B8`/`0x602484`, which the scroll repaint `0x419170` compares against the previous frame. The camera moves by velocity doubles `0x4846F0`/`0x4846F8`, with friction `0x482198` (`0x414F5B`).
+- Arrow-key scrolling already exists. The key-down table at `0x403F5F` (vk - 0x25, byte index `0x4061C4`, jump table `0x4061A4`) and the key-up table at `0x405493` (vk - 0x10, `0x406478`/`0x40645C`) set and clear the flags `0x484520` (up), `0x484524` (down), `0x484528` (left) and `0x48452C` (right). Edge scroll (`0x414C9F`) treats each flag like the mouse at that edge, but only while the byte `0x4843E8` (cycled 0..2 by F11) is 0. The only other key in the key-down table is F11.
+- `on_key_down`/`on_key_up` translate W/A/S/D into the arrow codes for these two lookups only, leaving `ebx` unchanged. Test at 1280x720: the arrow keys and WASD both scroll and stop on release, and the console (Z) and save names still type normally.
+- Caveat: this lives in the `screenmode` blob, so it is only installed above 640x480.
+
 Test at 1280x720: the toolbar spans the full width and looks seamless, the season icon and the CHEAT label sit at the right edge, and the season tooltip works. Open: a little lag in missions (probably the per-frame full repaint), and skipping the intro video froze for about 30 seconds before the menu.
 
 ## Open questions to settle while implementing

@@ -79,6 +79,8 @@ header:
     dd cmp_tab_lo               ; +0x60
     dd cmp_tab_hi               ; +0x64
     dd on_panel_fill            ; +0x68
+    dd on_key_down              ; +0x6C
+    dd on_key_up                ; +0x70
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -488,6 +490,48 @@ on_panel_fill:
     pop esi
     pop ebp
     ret 16
+
+; WASD camera scrolling. The window procedure already maps the arrow keys
+; to the scroll flags 0x484520 (up), 0x484524 (down), 0x484528 (left) and
+; 0x48452C (right) through two jump tables: key down at 0x403F5F (vk - 0x25,
+; 0x99 entries) and key up at 0x405493 (vk - 0x10, 0x19 entries). ebx holds
+; the virtual-key code at both. Translate W/A/S/D to the arrow codes for the
+; table lookup only, leaving ebx alone.
+
+; Jumped to from 0x403F5F; replaces "lea eax, [ebx-0x25]; cmp eax, 0x98".
+on_key_down:
+    call wasd_to_arrow
+    sub eax, 0x25
+    cmp eax, 0x98
+    jmp 0x403F67
+
+; Jumped to from 0x405493; replaces "lea eax, [ebx-0x10]; cmp eax, 0x18".
+on_key_up:
+    call wasd_to_arrow
+    sub eax, 0x10
+    cmp eax, 0x18
+    jmp 0x405499
+
+; eax = ebx, with W/A/S/D replaced by VK_UP/LEFT/DOWN/RIGHT.
+wasd_to_arrow:
+    mov eax, ebx
+    cmp eax, 'W'
+    jne .a
+    mov eax, 0x26
+    ret
+.a: cmp eax, 'A'
+    jne .s
+    mov eax, 0x25
+    ret
+.s: cmp eax, 'S'
+    jne .d
+    mov eax, 0x28
+    ret
+.d: cmp eax, 'D'
+    jne .done
+    mov eax, 0x27
+.done:
+    ret
 
 ; ---------------------------------------------------------------- helpers
 
