@@ -118,6 +118,13 @@ Originally the window stayed at the install-time size, and choosing a larger res
 - `savesettings=1` saves the size on exit, so the next launch opens at the chosen size. `bb.py install --resolution` sets both the registry and `ddraw.ini` to the same size.
 - Tested at 1280x720 to 1600x900 and 1024x768: one resize, no size change through briefing, videos and missions, cursor reaches every edge.
 
+## Display: Window / Fullscreen
+
+- Page 17 item 1 (type 1 font, like Resolution). Selecting it sends cnc-ddraw's `WM_TOGGLE_FULLSCREEN` (`WM_APP+117`) with wParam 1 (fullscreen) or 2 (windowed), the same path as Alt+Enter. With `windowed=true` and `toggle_borderless=true` it switches to borderless fullscreen and back.
+- The label reads the state from the window style: cnc-ddraw's borderless fullscreen drops `WS_CAPTION` (`GetWindowLongA` is not faked for `GWL_STYLE`).
+- `savesettings=1` writes `fullscreen=` on exit, and `bb.py run` now only rewrites it for an explicit `--window`/`--fullscreen`, so the choice survives relaunches.
+- Tested: toggles both ways, label follows Alt+Enter, quitting in fullscreen relaunches fullscreen.
+
 ## Risks to check while implementing
 
 - The menu font must have the digits and `X` (the save slot names suggest digits render; to confirm on screen).

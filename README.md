@@ -11,7 +11,7 @@ See `plans/beasts-and-bumpkins-restoration.md` for the roadmap and `research/` f
 
 You need to supply the game yourself. The scripts only work with the English EU CD release (the `BEASTS.EXE` with md5 `2d2852fcb22e6f65a0cf3415abaf4411`) and refuse anything else. Everything generated (extracted files, patched exe, music, downloaded wrappers, logs) goes into the ignored `.local/` folder.
 
-The copy used for development is the "ISO Version" (English) from [MyAbandonware](https://www.myabandonware.com/game/beasts-bumpkins-bh1), which unzips to `BEASTS&BUMPKINS.bin` and `.cue`. Hashes are in `research/disc-and-executable.md`.
+Hashes of the tested disc image (`BEASTS&BUMPKINS.bin` and `.cue`) are in `research/disc-and-executable.md`.
 
 ## What gets changed
 
@@ -51,12 +51,15 @@ python3 scripts/bb.py install
 #    --console --console-key Z (or F12) uses another key; macOS takes F11 for Show Desktop
 
 # 3. Play
-python3 scripts/bb.py run               # window sized to the chosen resolution
-python3 scripts/bb.py run --fullscreen  # borderless fullscreen, aspect ratio kept
+python3 scripts/bb.py run               # window or fullscreen, as last chosen in game
+python3 scripts/bb.py run --fullscreen  # force borderless fullscreen (--window forces a window)
 python3 scripts/bb.py stop              # close a running game (install and run do this first)
 ```
 
-The main menu's OPTIONS page cycles the mission resolution. About a second after you stop on one, the window resizes to it and then stays that size: menus, briefings and videos (640x480) are scaled up into it.
+The main menu's OPTIONS page has:
+
+- **Resolution** cycles the mission resolution. About a second after you stop on one, the window resizes to it and then stays that size: menus, briefings and videos (640x480) are scaled up into it.
+- **Display** switches between a window and borderless fullscreen (same as Alt+Enter). Both settings are kept for the next launch.
 
 On Windows use `py scripts\bb.py ...`. In game, Alt+Enter switches between window and fullscreen and Ctrl+Tab releases the mouse. Logs go to `.local/logs/`.
 

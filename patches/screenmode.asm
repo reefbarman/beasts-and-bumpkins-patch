@@ -80,6 +80,10 @@ WM_ENTERSIZEMOVE equ 0x231
 WM_EXITSIZEMOVE equ 0x232
 WM_WINDOWPOSCHANGING equ 0x46
 SWP_NOMOVE_NOSIZE equ 3
+WM_TOGGLE_FULLSCREEN equ 0x8075 ; cnc-ddraw: WM_APP + 117
+DDRAW_SET_FULLSCREEN equ 1
+DDRAW_SET_WINDOWED equ 2
+WS_CAPTION      equ 0x00C00000
 RELOCK_DELAY    equ 300         ; ms after a resize before re-clipping the cursor
 GWL_STYLE       equ -16
 GWL_EXSTYLE     equ -20
@@ -545,6 +549,7 @@ on_panel_fill:
 ; The game has no options menu. Page 1 (main menu) gets an OPTIONS item
 ; before QUIT, which opens page 17:
 ;   Resolution: 1280 x 720   (select to cycle; the window follows it)
+;   Display: Window          (select to switch to Fullscreen and back)
 ;   BACK
 ; The choice is saved to DisplayWidth/DisplayHeight in the game's registry
 ; key, which on_registry_read reads at startup.
@@ -589,10 +594,19 @@ on_menu_build:
     call SPRINTF
     add esp, 16
     mov dword [ebx+M_ITEM_TEXT+I_TYPE], 1
-    mov esi, str_back
+    call is_fullscreen
+    mov esi, str_display_window
+    test eax, eax
+    jz .display
+    mov esi, str_display_full
+.display:
     lea edi, [ebx+M_ITEM_TEXT+ITEM_SIZE]
     call copy_str
-    mov dword [ebx+M_COUNT], 2
+    mov dword [ebx+M_ITEM_TEXT+ITEM_SIZE+I_TYPE], 1
+    mov esi, str_back
+    lea edi, [ebx+M_ITEM_TEXT+2*ITEM_SIZE]
+    call copy_str
+    mov dword [ebx+M_COUNT], 3
 .done:
     popad
     ret 4
@@ -631,10 +645,19 @@ on_menu_select:
     ret
 .options:
     mov eax, [ecx+M_SEL]
-    cmp eax, 1
+    cmp eax, 2
     je .back
+    cmp eax, 1
+    je .display
     test eax, eax
     jz .cycle
+    ret
+.display:
+    push ecx
+    call toggle_fullscreen
+    pop ecx
+    push PAGE_OPTIONS           ; rebuild with the new label
+    call MENU_SHOW_PAGE
     ret
 .cycle:
     push ecx
@@ -792,33 +815,14 @@ check_window_resize:
 resize_window:
     push ebp
     mov ebp, esp
-    sub esp, 32                 ; -4 SendMessageA, -8 GetWindowLongA,
-                                ; -12 AdjustWindowRectEx, -16 hwnd, -32 rect
+    sub esp, 32                 ; -16 hwnd, -32 rect
     mov eax, [GAME_HWND]
     test eax, eax
     jz .out
     mov [ebp-16], eax
-    push str_user32
-    call [IAT_GET_MODULE]
+    call resolve_user32
     test eax, eax
     jz .out
-    mov ebx, eax
-    mov esi, user32_names
-    lea edi, [ebp-4]
-.lookup:                        ; fill -4, -8, -12 in name order
-    push esi
-    push ebx
-    call [IAT_GET_PROC]
-    test eax, eax
-    jz .out
-    mov [edi], eax
-    sub edi, 4
-.skip:
-    lodsb
-    test al, al
-    jnz .skip
-    cmp byte [esi], 0
-    jne .lookup
 
     mov dword [ebp-32], CENTRED
     mov dword [ebp-28], CENTRED
@@ -830,36 +834,34 @@ resize_window:
     mov [ebp-20], eax
     push GWL_EXSTYLE
     push dword [ebp-16]
-    call [ebp-8]
+    call [get_window_long]
     mov ebx, eax
     push GWL_STYLE
     push dword [ebp-16]
-    call [ebp-8]
+    call [get_window_long]
     push ebx                    ; client rect -> window rect
     push 0                      ; no menu
     push eax
     lea eax, [ebp-32]
     push eax
-    call [ebp-12]
+    call [adjust_window_rect]
 
     push 0
     push 0
     push WM_ENTERSIZEMOVE
     push dword [ebp-16]
-    call [ebp-4]
+    call [send_message]
     lea eax, [ebp-32]
     push eax
     push 0
     push WM_SIZING
     push dword [ebp-16]
-    call [ebp-4]
+    call [send_message]
     push 0
     push 0
     push WM_EXITSIZEMOVE
     push dword [ebp-16]
-    call [ebp-4]
-    mov eax, [ebp-4]
-    mov [send_message], eax
+    call [send_message]
     call [IAT_GET_TICK]
     add eax, RELOCK_DELAY
     or eax, 1
@@ -869,10 +871,92 @@ resize_window:
     pop ebp
     ret
 
+; Look up the user32 functions the game doesn't import, once. eax = 1 when
+; they are all available. Clobbers ecx, edx.
+resolve_user32:
+    mov eax, [user32_ready]
+    test eax, eax
+    jnz .ret
+    push ebx
+    push esi
+    push edi
+    push str_user32
+    call [IAT_GET_MODULE]
+    test eax, eax
+    jz .fail
+    mov ebx, eax
+    mov esi, user32_names
+    mov edi, user32_procs
+.lookup:
+    push esi
+    push ebx
+    call [IAT_GET_PROC]
+    test eax, eax
+    jz .fail
+    stosd
+.skip:
+    lodsb
+    test al, al
+    jnz .skip
+    cmp byte [esi], 0
+    jne .lookup
+    mov dword [user32_ready], 1
+    mov eax, 1
+.fail:
+    pop edi
+    pop esi
+    pop ebx
+.ret:
+    ret
+
+; eax = 1 in cnc-ddraw's borderless fullscreen, 0 in a window. Its
+; fullscreen drops the title bar (border=true in a window). Clobbers ecx,
+; edx.
+is_fullscreen:
+    call resolve_user32
+    test eax, eax
+    jz .ret
+    mov eax, [GAME_HWND]
+    test eax, eax
+    jz .ret
+    push GWL_STYLE
+    push eax
+    call [get_window_long]
+    test eax, WS_CAPTION
+    setz al
+    movzx eax, al
+.ret:
+    ret
+
+; Switch between window and borderless fullscreen with cnc-ddraw's
+; WM_TOGGLE_FULLSCREEN (what Alt+Enter does). savesettings=1 keeps the
+; choice for the next launch. Clobbers eax, ecx, edx.
+toggle_fullscreen:
+    call is_fullscreen
+    mov ecx, DDRAW_SET_FULLSCREEN
+    test eax, eax
+    jz .send
+    mov ecx, DDRAW_SET_WINDOWED
+.send:
+    mov eax, [user32_ready]
+    test eax, eax
+    jz .ret
+    push 0
+    push ecx
+    push WM_TOGGLE_FULLSCREEN
+    push dword [GAME_HWND]
+    call [send_message]
+.ret:
+    ret
+
 resize_at       dd 0            ; GetTickCount when the window should resize, 0 = none
 relock_at       dd 0            ; GetTickCount when to re-clip the cursor, 0 = none
-send_message    dd 0            ; SendMessageA, set by resize_window
 relock_pos      dd 0, 0, 0, 0, 0, 0, SWP_NOMOVE_NOSIZE   ; WINDOWPOS
+user32_ready    dd 0
+user32_procs:                   ; filled in user32_names order
+send_message    dd 0
+get_window_long dd 0
+adjust_window_rect dd 0
 str_user32      db 'user32.dll', 0
 user32_names    db 'SendMessageA', 0, 'GetWindowLongA', 0
                 db 'AdjustWindowRectEx', 0, 0
@@ -900,6 +984,8 @@ presets_end:
 
 str_options     db 'OPTIONS', 0
 str_back        db 'BACK', 0
+str_display_window db 'Display: Window', 0
+str_display_full db 'Display: Fullscreen', 0
 fmt_resolution  db 'Resolution: %d x %d', 0
 
 str_advapi      db 'advapi32.dll', 0

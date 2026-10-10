@@ -243,9 +243,10 @@ def copy_game(dest: Path, music: bool, resolution: tuple[int, int]) -> None:
             (dest / name).unlink(missing_ok=True)
 
 
-def write_ddraw_ini(dest: Path, fullscreen: bool, window: tuple[int, int] | None) -> None:
+def write_ddraw_ini(dest: Path, fullscreen: bool | None, window: tuple[int, int] | None) -> None:
     """Write ddraw.ini from the template. With window None, keep the installed
-    file's window size and position (cnc-ddraw saves them on exit)."""
+    file's window size and position, and with fullscreen None its window or
+    fullscreen choice (cnc-ddraw saves them on exit)."""
     path = dest / "ddraw.ini"
     if window is None and path.exists():
         text = path.read_text()
@@ -254,7 +255,8 @@ def write_ddraw_ini(dest: Path, fullscreen: bool, window: tuple[int, int] | None
         w, h = window or (1280, 960)
         text = re.sub(r"(?m)^width=.*$", f"width={w}", text)
         text = re.sub(r"(?m)^height=.*$", f"height={h}", text)
-    text = re.sub(r"(?m)^fullscreen=.*$", f"fullscreen={'true' if fullscreen else 'false'}", text)
+    if fullscreen is not None:
+        text = re.sub(r"(?m)^fullscreen=.*$", f"fullscreen={'true' if fullscreen else 'false'}", text)
     path.write_text(text)
 
 
@@ -395,11 +397,13 @@ def cmd_run(args) -> int:
     state = json.loads(STATE.read_text())
     game_dir = Path(state["game_dir"])
     stop_game()
-    write_ddraw_ini(game_dir, fullscreen=args.fullscreen, window=None)
+    fullscreen = True if args.fullscreen else False if args.window else None
+    write_ddraw_ini(game_dir, fullscreen=fullscreen, window=None)
     logs = LOCAL / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"run-{time.strftime('%Y%m%d-%H%M%S')}.log"
-    print(f"launching ({'fullscreen' if args.fullscreen else 'window'}), log: {log}")
+    mode = {True: "fullscreen", False: "window", None: "last used display mode"}[fullscreen]
+    print(f"launching ({mode}), log: {log}")
     if state["platform"] == "windows":
         cmd = [str(game_dir / "BEASTS.EXE")]
         env = None
@@ -429,8 +433,9 @@ def main() -> int:
     sub.add_parser("stop", help="close the running game (install and run do this first)")
     pr = sub.add_parser("run", help="launch the game, closing any running copy first")
     mode = pr.add_mutually_exclusive_group()
-    mode.add_argument("--window", action="store_true", help="window, 2x for 640x480 (default)")
-    mode.add_argument("--fullscreen", action="store_true", help="borderless fullscreen")
+    mode.add_argument("--window", action="store_true",
+                      help="start in a window (default: whatever was last chosen in game)")
+    mode.add_argument("--fullscreen", action="store_true", help="start in borderless fullscreen")
     args = p.parse_args()
     return {"prepare": cmd_prepare, "install": cmd_install, "run": cmd_run, "stop": cmd_stop}[args.cmd](args)
 
