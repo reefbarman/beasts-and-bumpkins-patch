@@ -1,0 +1,19 @@
+research/resolution-captures.md
+  h_e08a86bb3a33a2 47
+README.md
+  h_e08a86bb3a33a2 1,3,19,26-28,51-52,87,104-115,117,119
+  h_e08a86bb3a33a2 18,20-25,88,116
+LICENSE
+  h_e08a86bb3a33a2 1-674
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9ff19c68a5cf2e9062f4ab3f80dcf88a1cc0d263",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
