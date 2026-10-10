@@ -44,7 +44,7 @@ Install: `bb.py install --console --console-key Z --resolution 1280x720` (cnc-dd
 | Grey bar            | Cut off at bottom centre, around x 400-500, y 714+                                             | Possibly the letter/message tab, positioned from 480 or partially off-screen        |
 | Message text        | "A letter has arrived!" centred at the bottom, correct                                         | Uses globals                                                                        |
 
-Gameplay works "with some small glitches" (Tristan). No crash seen.
+Gameplay works "with some small glitches" (tester's words). No crash seen.
 
 Takeaway: full-screen 640x480 screens (menu, briefing, video) are the worst. Fix those by running them in a 640x480 mode and switching to the large mode for missions. Then fix the handful of HUD elements individually.
 
