@@ -19,15 +19,15 @@ The existing fan patch supplies useful fixes, but it is not a rebuilt game engin
 
 ## Current evidence and limits
 
-| Evidence                                                                                                                                                                | Consequence                                                                                                                                       |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace contains no game or source project and is not a Git repository.                                                                                               | There is no existing build or delivery convention to inherit.                                                                                     |
-| Local host is macOS 26.7.1, Apple Silicon, with CrossOver 26.3 installed. Python 3.14.7 and Node 26.10.0 run.                                                           | We can begin locally. CrossOver licence/readiness and a suitable bottle still need checking.                                                      |
-| The supplied download page lists an English full disc release, approximately 328 MB, separately from a RIP and repack. [1]                                              | Download the full disc release requested by Tristan, not the altered RIP/repack. Actual contents are not yet inspected.                           |
-| bb-patch documents one tested BEASTS.EXE, MD5 `2d2852fcb22e6f65a0cf3415abaf4411`. [2]                                                                                   | Treat that as a version clue, not a trust signature. Establish our own SHA-256 identity and verify patch preimages against the downloaded binary. |
-| Source uses fixed-offset edits, registry setup and bundled DirectDraw wrapper files. It lacks input-hash checks and reliable transactional recovery. [3]                | Do not run it against the only copy or assume its Remove action restores the prior state.                                                         |
-| An upstream issue reports the patcher failing in CrossOver. CodeWeavers records limited game functionality on older CrossOver 24.0.1. [4][5]                            | The patcher's GUI is not a prerequisite; current CrossOver compatibility must be tested rather than assumed.                                      |
-| High-resolution edits adjust only some dimensions/positions. No save repair or simulation-clock repair appears in the patch list. Mission 24 has a crash report. [3][6] | Higher resolution, timing, saves and late-game stability are separate checks, not solved features.                                                |
+| Evidence                                                                                                                                                                | Consequence                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace contains no game or source project and is not a Git repository.                                                                                               | There is no existing build or delivery convention to inherit.                                                                                   |
+| Local host is macOS 26.7.1, Apple Silicon, with CrossOver 26.3 installed. Python 3.14.7 and Node 26.10.0 run.                                                           | We can begin locally. CrossOver licence/readiness and a suitable bottle still need checking.                                                    |
+| The work targets an untouched English full disc image, not an altered RIP/repack.                                                                                       | Actual contents are not yet inspected.                                                                                                          |
+| bb-patch documents one tested BEASTS.EXE, MD5 `2d2852fcb22e6f65a0cf3415abaf4411`. [1]                                                                                   | Treat that as a version clue, not a trust signature. Establish our own SHA-256 identity and verify patch preimages against the supplied binary. |
+| Source uses fixed-offset edits, registry setup and bundled DirectDraw wrapper files. It lacks input-hash checks and reliable transactional recovery. [2]                | Do not run it against the only copy or assume its Remove action restores the prior state.                                                       |
+| An upstream issue reports the patcher failing in CrossOver. CodeWeavers records limited game functionality on older CrossOver 24.0.1. [3][4]                            | The patcher's GUI is not a prerequisite; current CrossOver compatibility must be tested rather than assumed.                                    |
+| High-resolution edits adjust only some dimensions/positions. No save repair or simulation-clock repair appears in the patch list. Mission 24 has a crash report. [2][5] | Higher resolution, timing, saves and late-game stability are separate checks, not solved features.                                              |
 
 No game has been downloaded, installed, patched or run during planning. Reports are leads, not reproduced defects.
 
@@ -36,8 +36,8 @@ No game has been downloaded, installed, patched or run during planning. Reports 
 ### 1. Preserve and inspect
 
 1. Add ignore rules before bringing proprietary files into the workspace. Initial work stays local; any future remote or publication needs a separate decision.
-2. Download the English full disc release from the user-provided page. Record the resolved download URL, retrieval date, archive size and SHA-256. Do not execute downloaded installers automatically.
-3. Inspect the archive, then extract into `.local/originals/`. Preserve any BIN/CUE pair and audio tracks as supplied; converting only the data track could lose music. Keep the downloaded archive separately under `.local/downloads/`.
+2. Take the user-supplied English full disc image and record its file sizes and SHA-256. Do not execute supplied installers automatically.
+3. Keep the image outside the repository, extracting only into `.local/`. Preserve any BIN/CUE pair and audio tracks as supplied; converting only the data track could lose music.
 4. Inventory executable and asset files. Record PE architecture, imports, executable hashes, edition/language and whether packing or unusual installer requirements are present. MD5 comparison alone is not sufficient to approve an edit.
 5. Create a working installation in a dedicated CrossOver bottle. Use the supplied installer if practical; use a verified file-copy/registry setup only if needed. Record the actual bottle-visible Windows paths, not macOS paths.
 
@@ -124,20 +124,19 @@ Native Windows validation is deferred until a Windows test environment is availa
 - **Patch first, recommended:** gets the original game into use and supplies a behavioural reference. It retains the original engine's limitations until individual systems are reconstructed.
 - **Full reconstruction first:** aligns with a native port but delays playability and commits to unknown binary complexity. Revisit after a verified small reconstruction.
 - **Historical-PC emulation:** useful as a fallback reference when modern compatibility is ambiguous, not a substitute for the enhancement goal. It requires separately sourced/licensed OS and firmware where applicable.
-- “Abandonware” is not a copyright waiver. Personal use does not establish redistribution rights. Keep the game and derived materials private; evaluate rights before publishing recovered code or game content. The patch project's GPL licence does not license the original game.
+- Personal use does not establish redistribution rights. Keep the game and derived materials private; evaluate rights before publishing recovered code or game content. The patch project's GPL licence does not license the original game.
 
 ## Approval scope
 
-Approve Phase 1: download the requested release, inspect it, prepare a dedicated CrossOver setup, and attempt a reversible 640×480 playable baseline with only necessary tooling/fixes. Report actual results before expanding into major enhancements or whole-game reconstruction. This does not approve public distribution, purchases, changes to unrelated applications or a broad rewrite.
+Approve Phase 1: inspect a user-supplied disc image, prepare a dedicated CrossOver setup, and attempt a reversible 640×480 playable baseline with only necessary tooling/fixes. Report actual results before expanding into major enhancements or whole-game reconstruction. This does not approve public distribution, purchases, changes to unrelated applications or a broad rewrite.
 
 ## Sources
 
-1. [Game release page](https://www.myabandonware.com/game/beasts-bumpkins-bh1).
-2. [bb-patch README and tested executable](https://github.com/bb-patch/bb-patch#usage).
-3. [Patch application](https://github.com/bb-patch/bb-patch/blob/main/patch/patch.go), [patch list](https://github.com/bb-patch/bb-patch/blob/main/patch/patches.go), [resolution edits](https://github.com/bb-patch/bb-patch/blob/main/patch/set-resolution-patch.go), [registry setup](https://github.com/bb-patch/bb-patch/blob/main/patch/no-installation-patch.go).
-4. [CrossOver patcher report, issue 2](https://github.com/bb-patch/bb-patch/issues/2).
-5. [CodeWeavers compatibility report](https://www.codeweavers.com/compatibility/crossover/beasts-and-bumpkins).
-6. [Mission 24 crash report, issue 5](https://github.com/bb-patch/bb-patch/issues/5).
-7. [REA capabilities](https://github.com/morluto/rea) and [installation/release boundaries](https://github.com/morluto/rea/blob/main/docs/installation.md).
+1. [bb-patch README and tested executable](https://github.com/bb-patch/bb-patch#usage).
+2. [Patch application](https://github.com/bb-patch/bb-patch/blob/main/patch/patch.go), [patch list](https://github.com/bb-patch/bb-patch/blob/main/patch/patches.go), [resolution edits](https://github.com/bb-patch/bb-patch/blob/main/patch/set-resolution-patch.go), [registry setup](https://github.com/bb-patch/bb-patch/blob/main/patch/no-installation-patch.go).
+3. [CrossOver patcher report, issue 2](https://github.com/bb-patch/bb-patch/issues/2).
+4. [CodeWeavers compatibility report](https://www.codeweavers.com/compatibility/crossover/beasts-and-bumpkins).
+5. [Mission 24 crash report, issue 5](https://github.com/bb-patch/bb-patch/issues/5).
+6. [REA capabilities](https://github.com/morluto/rea) and [installation/release boundaries](https://github.com/morluto/rea/blob/main/docs/installation.md).
 
 Upstream links are mutable. Pin revisions and downloaded tool versions before relying on them during implementation.

@@ -1,18 +1,13 @@
 # Disc release and executable identity
 
-## Source
+## Disc image
 
-- Page: https://www.myabandonware.com/game/beasts-bumpkins-bh1, "ISO Version", English
-- Resolved file: `https://d2.xp.myabandonware.com/t/<token>/Beasts-Bumpkins_Win_EN_ISO-Version.zip` (token is per-session)
-- Retrieved: 2026-10-09T11:34:25Z
-- Archive: `Beasts-Bumpkins_Win_EN_ISO-Version.zip`, 343,691,233 bytes, sha256 `cfc21e9a22fe0430a1273b0de4fbfcf3a1345c7e9393fd59ba3133470c0a0735`
+English EU CD release, as a BIN/CUE image.
 
-## Contents
-
-| File                                                 |       Bytes | sha256                                                             |
-| ---------------------------------------------------- | ----------: | ------------------------------------------------------------------ |
-| `Beasts_and_Bumpkins-THEiSOZONE/BEASTS&BUMPKINS.bin` | 396,991,728 | `fcca747e79712ca1503c51a136706320beb8aeb983f4da9b3c982cbcd77e8243` |
-| `Beasts_and_Bumpkins-THEiSOZONE/BEASTS&BUMPKINS.cue` |         368 | `c4382223b58e09e183dfa74e3c5aed96e2c6cdc834ece05c3bf563669c43eee9` |
+| File                  |       Bytes | sha256                                                             |
+| --------------------- | ----------: | ------------------------------------------------------------------ |
+| `BEASTS&BUMPKINS.bin` | 396,991,728 | `fcca747e79712ca1503c51a136706320beb8aeb983f4da9b3c982cbcd77e8243` |
+| `BEASTS&BUMPKINS.cue` |         368 | `c4382223b58e09e183dfa74e3c5aed96e2c6cdc834ece05c3bf563669c43eee9` |
 
 The CUE describes one `MODE2/2352` data track (volume label `EAEUROPE`, 117,958 sectors) and seven CD audio tracks (tracks 2 to 8). The game plays music from those tracks via MCI `cdaudio` (`open cdaudio`, `play cdaudio from %d`), so no-CD installs lose music unless CD audio is emulated or redirected.
 
