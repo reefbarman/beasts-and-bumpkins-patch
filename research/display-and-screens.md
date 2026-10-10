@@ -152,6 +152,8 @@ The rest of the change:
   - CHEAT label: x 0x276 (`0x40C4AD`, shown while cheat mode is on).
   All of these are shifted by the extra width. The hover tooltip already clamps to `g_width` (`0x42B09E`). It shows after the mouse has been still for 36 frames (`0x42AB8C`).
 
+Message-log tab (`tab.mfb`, the "grey bar"): drawn at x 0x190-0x1F4 at the bottom once the level counter `0x5E5CC0` is non-zero (`0x41A74F`). The draw is at `0x41A76E`, the dirty rect at `0x41A787`/`0x41A79C`, and the click and hover zones at `0x414D48`/`0x414D4F` and `0x4150F3`/`0x4150FA`. All of these are shifted by half the extra width, so the tab keeps its place relative to the screen centre. Test at 1280x720: the tab sits right of centre and clicking it still opens the log. The panel it opens (the stone build panel with icons) is still laid out for 640 and ends around x 848.
+
 Test at 1280x720: the toolbar spans the full width and looks seamless, the season icon and the CHEAT label sit at the right edge, and the season tooltip works. Open: a little lag in missions (probably the per-frame full repaint), and skipping the intro video froze for about 30 seconds before the menu.
 
 ## Open questions to settle while implementing

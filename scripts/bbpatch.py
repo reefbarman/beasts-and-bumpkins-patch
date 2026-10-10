@@ -155,6 +155,13 @@ SCREENMODE_HOOKS = [
     (0x42AE5A, "3d58020000", 17),            # season hover zone left
     (0x42AE6A, "3d80020000", 18),            # season hover zone right
     (0x40C4AD, "6876020000", 19),            # CHEAT label x
+    (0x41A76E, "6890010000", 20),            # message-log tab x
+    (0x41A79C, "6890010000", 20),            # message-log tab dirty rect x1
+    (0x41A787, "68f4010000", 21),            # message-log tab dirty rect x2
+    (0x414D48, "3d90010000", 22),            # message-log tab click zone left
+    (0x4150F3, "3d90010000", 22),            # message-log tab hover zone left
+    (0x414D4F, "3df4010000", 23),            # message-log tab click zone right
+    (0x4150FA, "3df4010000", 23),            # message-log tab hover zone right
 ]
 SCREENMODE_JUMPS = {0x41FFC0, 0x42B260, 0x419D80, 0x41A0B0}
 
@@ -174,7 +181,7 @@ def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, li
 
 
 def patch_screenmode() -> tuple[list[Edit], Section]:
-    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 20)
+    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 24)
     edits = []
     for va, original_hex, entry in SCREENMODE_HOOKS:
         original = bytes.fromhex(original_hex)

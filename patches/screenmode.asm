@@ -74,6 +74,10 @@ header:
     dd cmp_season_lo            ; +0x4C
     dd cmp_season_hi            ; +0x50
     dd push_cheat_x             ; +0x54
+    dd push_tab_x1              ; +0x58
+    dd push_tab_x2              ; +0x5C
+    dd cmp_tab_lo               ; +0x60
+    dd cmp_tab_hi               ; +0x64
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -412,7 +416,52 @@ cmp_shifted_tail:               ; [esp] = saved edx, edx = 640-layout x
     pop edx                     ; pop and ret keep the flags
     ret
 
+; Message-log tab (tab.mfb), drawn at the bottom from x 0x190 to 0x1F4 once
+; the level counter 0x5E5CC0 is non-zero (0x41A76E, dirty rect 0x41A787 and
+; 0x41A79C). Its click zones (0x414D48/0x414D4F, 0x4150F3/0x4150FA) test the
+; same range. It sits 80 px right of centre in the 640 layout; keep that by
+; shifting it by half the extra width.
+
+; Replaces "push 0x190".
+push_tab_x1:
+    push eax
+    call half_extra_width
+    add eax, 0x190
+    jmp push_eax_tail
+
+; Replaces "push 0x1F4".
+push_tab_x2:
+    push eax
+    call half_extra_width
+    add eax, 0x1F4
+    jmp push_eax_tail
+
+; Replaces "cmp eax, 0x190". Flags are the result.
+cmp_tab_lo:
+    push edx
+    mov edx, 0x190
+    jmp cmp_half_tail
+
+; Replaces "cmp eax, 0x1F4".
+cmp_tab_hi:
+    push edx
+    mov edx, 0x1F4
+cmp_half_tail:                  ; [esp] = saved edx, edx = 640-layout x
+    push eax
+    call half_extra_width
+    add edx, eax
+    pop eax
+    cmp eax, edx
+    pop edx                     ; pop and ret keep the flags
+    ret
+
 ; ---------------------------------------------------------------- helpers
+
+; eax = half of extra_width.
+half_extra_width:
+    call extra_width
+    shr eax, 1
+    ret
 
 ; eax = how much wider than 640 the display is (0 if not wider).
 extra_width:
