@@ -95,7 +95,21 @@ Hooks: `0x406B3A`, `0x41F851`/`0x41F9F3`/`0x41FD8D` (state 2), `0x41FD3E`/`0x42D
 | In-mission pause (Esc) menu          | Same: top-left 640x480, and the cursor leaves trails outside it                                      |
 | Thought bubble over unexplored black | Leaves a trail (the black area isn't redrawn)                                                        |
 
-So the briefing and pause menu run in state 2. They need their own 640x480 scopes, probably keyed off the sub-state `0x484274` or the functions that draw them.
+So the briefing and pause menu run in state 2.
+
+### Briefing and pause menu (screenmode v2)
+
+At the end of each mission frame (`0x40B7EE`) the loop picks what to draw: the menu (`0x41E700`) if the menu object's first dword `[0x5CA308]` is non-zero, the briefing (`0x42B3C0` on `0x6A9950`) if view mode `0x48443C == 4`, otherwise the map (`0x40BBA0`). Both screens draw their background once when entered, straight after a `ClearScreen`:
+
+- `0x41FFC0` `Menu_SetActive(flag)`, thiscall: flag 1 sets `[menu] = 1` and builds the page; flag 0 redraws the mission panel `0x486DD8`.
+- `0x42B260` `SetViewMode(mode)`, cdecl, the only writer of `0x48443C`: mode 4 draws the briefing background `0x4885EC`; leaving mode 4 redraws the mission panel. `PlayVideo` uses mode 5.
+
+Both entries now `jmp` to stubs that switch first, using the pending argument, then run the displaced bytes and jump back. Every hook uses one rule (`sync_for`): 640x480 in states 0 and 1, and in state 2 while the menu is active or the view mode is 4. The mission size applies otherwise in state 2. The mode is left alone in state 3 and view mode 5.
+
+Test at 1280x720: the briefing and the pause menu are correct (centred, full height, no cursor trails), Continue returns to the full mission view, and save and load work. Still open:
+
+- After loading a game from inside a mission, black bars were left over the map. At first they flickered between frames, then they stayed until the camera scrolled over them. The map view seems to repaint only changed areas, so it needs a full redraw after a mode switch.
+- The thought-bubble trail over unexplored black areas is unchanged.
 
 ## Open questions to settle while implementing
 

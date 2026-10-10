@@ -15,6 +15,8 @@ org 0x71F000
 G_SCREEN        equ 0x48426C    ; 0 startup, 1 menus, 2 mission, 3 video
 G_WIDTH         equ 0x484444
 G_HEIGHT        equ 0x484448
+VIEW_MODE       equ 0x48443C    ; mission view; 4 = briefing, 5 = video
+MENU_ACTIVE     equ 0x5CA308    ; first dword of the menu object (pause menu in missions)
 DISPLAY         equ 0x4EEBC8    ; display object, methods are thiscall
 READ_REGISTRY   equ 0x4064B0    ; reads DisplayWidth/DisplayHeight among others
 CREATE_PRIMARY  equ 0x42EE50    ; Display_CreatePrimary()
@@ -36,7 +38,7 @@ PORTRAIT_INSET  equ 100         ; 640x480: portrait at 540,380
 ; bbpatch.py reads this table; keep the order in sync with its HOOKS.
 header:
     db 'BBSM'
-    dd 1                        ; version
+    dd 2                        ; version
     dd on_registry_read         ; +0x08
     dd on_enter_mission         ; +0x0C
     dd on_enter_menu            ; +0x10
@@ -44,6 +46,8 @@ header:
     dd on_video_end             ; +0x18
     dd on_main_loop             ; +0x1C
     dd on_portrait_init         ; +0x20
+    dd on_menu_open_close       ; +0x24
+    dd on_set_view_mode         ; +0x28
 
 mission_w   dd FRONT_W
 mission_h   dd FRONT_H
@@ -152,21 +156,71 @@ on_portrait_init:
     xor eax, eax
     ret
 
+; Jumped to from the entry of Menu_SetActive(flag) (0x41FFC0, thiscall),
+; which clears the screen and draws the menu background (flag 1) or the
+; mission panel (flag 0) once. Switch first, using the pending flag, then run
+; the 8 displaced bytes and continue.
+on_menu_open_close:
+    pushfd
+    pushad
+    push dword [VIEW_MODE]
+    push dword [esp+44]         ; flag (4 pushfd + 32 pushad + 4 view + ret)
+    call sync_for
+    add esp, 8
+    popad
+    popfd
+    push esi
+    push edi
+    mov esi, ecx
+    mov ecx, [esp+0xC]
+    jmp 0x41FFC8
+
+; Jumped to from the entry of SetViewMode(mode) (0x42B260, cdecl). Entering
+; mode 4 (briefing) clears and draws the briefing background once; leaving it
+; redraws the mission panel. Switch first, using the pending mode.
+on_set_view_mode:
+    pushfd
+    pushad
+    push dword [esp+40]         ; mode (4 pushfd + 32 pushad + ret)
+    push dword [MENU_ACTIVE]
+    call sync_for
+    add esp, 8
+    popad
+    popfd
+    push esi
+    mov eax, [VIEW_MODE]
+    jmp 0x42B266
+
 ; ---------------------------------------------------------------- helpers
 
-; Mission size in state 2, 640x480 in states 0 and 1, untouched during video.
 sync_mode:
+    push dword [VIEW_MODE]
+    push dword [MENU_ACTIVE]
+    call sync_for
+    add esp, 8
+    ret
+
+; sync_for(menu_active, view_mode), cdecl. The one rule for the display size:
+; 640x480 in states 0 and 1, and in state 2 while the pause menu is open or
+; the briefing is showing; mission size otherwise in state 2. Videos (state 3,
+; view mode 5) manage the mode themselves, so leave it alone.
+sync_for:
     mov eax, [G_SCREEN]
     cmp eax, 2
-    je .mission
-    cmp eax, 1
     ja .done
-    push FRONT_H
-    push FRONT_W
-    jmp .set
-.mission:
+    jb .front
+    cmp dword [esp+8], 5
+    je .done
+    cmp dword [esp+4], 0
+    jne .front
+    cmp dword [esp+8], 4
+    je .front
     push dword [mission_h]
     push dword [mission_w]
+    jmp .set
+.front:
+    push FRONT_H
+    push FRONT_W
 .set:
     call set_mode
     add esp, 8

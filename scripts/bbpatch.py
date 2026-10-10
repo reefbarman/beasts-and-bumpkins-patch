@@ -125,7 +125,9 @@ SECTION_FLAGS = 0xE0000060
 SCREENMODE_VA = 0x71F000
 
 # Hook sites for patches/screenmode.asm: (VA, original bytes, header entry
-# index or None to NOP). A hooked site becomes "call entry" padded with NOPs.
+# index or None to NOP). A hooked site becomes "call entry" padded with NOPs,
+# or "jmp entry" for sites in SCREENMODE_JUMPS (function entries whose stub
+# runs the displaced instructions and jumps back).
 SCREENMODE_HOOKS = [
     (0x406B3A, "e871f9ffff", 0),             # WinMain: call ReadRegistry
     (0x41F851, "c7056c42480002000000", 1),   # g_screen = 2, new game
@@ -139,7 +141,10 @@ SCREENMODE_HOOKS = [
     (0x40B244, "a16c424800", 5),             # main loop: mov eax, g_screen
     (0x42A310, "33c0c7011c020000", 6),       # portrait x = 540
     (0x42A32A, "c741047c010000", None),      # portrait y = 380
+    (0x41FFC0, "56578bf18b4c240c", 7),       # Menu_SetActive(flag) entry
+    (0x42B260, "56a13c444800", 8),           # SetViewMode(mode) entry
 ]
+SCREENMODE_JUMPS = {0x41FFC0, 0x42B260}
 
 
 def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, list[int]]:
@@ -157,7 +162,7 @@ def load_blob(name: str, va: int, magic: bytes, entries: int) -> tuple[bytes, li
 
 
 def patch_screenmode() -> tuple[list[Edit], Section]:
-    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 7)
+    blob, targets = load_blob("screenmode", SCREENMODE_VA, b"BBSM", 9)
     edits = []
     for va, original_hex, entry in SCREENMODE_HOOKS:
         original = bytes.fromhex(original_hex)
@@ -165,7 +170,8 @@ def patch_screenmode() -> tuple[list[Edit], Section]:
             replacement = b"\x90" * len(original)
         else:
             rel = (targets[entry] - (va + 5)) & 0xFFFFFFFF
-            replacement = b"\xe8" + u32(rel) + b"\x90" * (len(original) - 5)
+            opcode = b"\xe9" if va in SCREENMODE_JUMPS else b"\xe8"
+            replacement = opcode + u32(rel) + b"\x90" * (len(original) - 5)
         edits.append(Edit(text_offset(va), original, replacement))
     return edits, Section(b".bbsm", SCREENMODE_VA, blob)
 
