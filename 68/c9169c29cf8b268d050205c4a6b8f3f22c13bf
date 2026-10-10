@@ -1,0 +1,17 @@
+patches/screenmode.asm
+  h_e08a86bb3a33a2 25,43,285-288
+  h_e08a86bb3a33a2 26
+research/display-and-screens.md
+  h_e08a86bb3a33a2 114-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68c9169c29cf8b268d050205c4a6b8f3f22c13bf",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
