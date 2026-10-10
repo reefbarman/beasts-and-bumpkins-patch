@@ -1,0 +1,19 @@
+scripts/bbpatch.py
+  h_e08a86bb3a33a2 166-167,169,187
+research/display-and-screens.md
+  h_e08a86bb3a33a2 157-163
+patches/screenmode.asm
+  h_e08a86bb3a33a2 82-83,494-534
+  h_e08a86bb3a33a2 535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c1bfaf2533495b22d1bcab310f1b6d23524cb320",
+  "prompts": {},
+  "humans": {
+    "h_e08a86bb3a33a2": {
+      "author": "Tristan Cartledge <tristan.cartledge@gmail.com>"
+    }
+  }
+}
